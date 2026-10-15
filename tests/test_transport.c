@@ -1,0 +1,133 @@
+#include <assert.h>
+#include <setjmp.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdarg.h>
+#include "../main/bridge_transport.c"
+static char diagnostic_log[32768];
+void bridge_test_log(const char *level,const char *tag,const char *format,...) {
+ (void)level;(void)tag; va_list args;va_start(args,format);
+ size_t used=strlen(diagnostic_log); int n=vsnprintf(diagnostic_log+used,sizeof(diagnostic_log)-used,format,args);
+ assert(n>=0 && used+(size_t)n+1U<sizeof(diagnostic_log)); strcat(diagnostic_log,"\n"); va_end(args);
+}
+static jmp_buf stop_loop;
+static unsigned mock_connected, mock_fault, mock_writes;
+static uint32_t mock_time;
+static int mock_uart_read, mock_uart_write=1;
+static const char *mock_input;
+unsigned xEventGroupGetBits(void *group) { (void)group; return mock_connected; }
+int xQueueReceive(void *queue,void *out,int ticks) {
+ (void)queue;(void)ticks;
+ if(!mock_fault) return 0; ((uart_event_t *)out)->type=(int)mock_fault; mock_fault=0; return 1;
+}
+int uart_read_bytes(int uart,void *buffer,unsigned length,int ticks) {
+ (void)uart;assert(ticks==0);
+ if(mock_input) { unsigned n=(unsigned)strlen(mock_input);assert(n<=length);memcpy(buffer,mock_input,n);mock_input=NULL;return (int)n; }
+ return mock_uart_read;
+}
+int uart_tx_chars(int uart,const char *bytes,unsigned length) { (void)uart;(void)bytes; assert(length); ++mock_writes; return mock_uart_write; /* partial FIFO write */ }
+int uart_flush_input(int uart) { (void)uart; return 0; }
+int gpio_set_level(int pin,int level) { (void)pin;(void)level; return 0; }
+uint32_t esp_random(void) { static uint32_t value=1; return value++; }
+int64_t esp_timer_get_time(void) { return (int64_t)mock_time*1000; }
+int xTaskCreate(void (*task)(void *),const char *name,unsigned stack,void *arg,int priority,void *handle) {
+ (void)task;(void)name;(void)stack;(void)arg;(void)priority;(void)handle; return pdPASS;
+}
+void vTaskDelay(unsigned ticks) { assert(ticks==1); longjmp(stop_loop,1); }
+static int attach(const char *id) {
+ int pair[2]; assert(socketpair(AF_UNIX,SOCK_STREAM,0,pair)==0);
+ client=pair[0]; assert(fcntl(client,F_SETFL,O_NONBLOCK)==0);
+ strcpy(session,id); ready=1; stm_diagnostic[0]=0; opened_at=last_progress=mock_time; memset(&tcp_out,0,sizeof(tcp_out)); memset(&uart_out,0,sizeof(uart_out));
+ return pair[1];
+}
+static void owner_once(void) {
+ if(!setjmp(stop_loop)) transport_task(NULL);
+}
+static void assert_reason(const char *reason) {
+ char expected[96];snprintf(expected,sizeof(expected),"disconnect reason=%s ",reason);
+ assert(strstr(diagnostic_log,expected)); assert(strstr(diagnostic_log,"uart_q=") && strstr(diagnostic_log,"age_ms="));
+}
+static void reason_tests(void) {
+ int peer=attach("1111111111111111");
+ ready=0; opened_at=0;mock_time=40;
+ uart_record("SESSION 1111111111111111 READY");
+ size_t logged=strlen(diagnostic_log); uart_record("SESSION 1111111111111111 READY");assert(strlen(diagnostic_log)==logged);
+ assert(strstr(diagnostic_log,"handshake_ready session=1111111111111111 elapsed_ms=40"));
+ memset(&tcp_out,0,sizeof(tcp_out));
+ uart_record("DIAG 0000000000000000 reason=stale");assert(!stm_diagnostic[0]);
+ uart_record("DIAG 1111111111111111 reason=control_hb_timeout hb_ms=500");
+ uart_record("SESSION 1111111111111111 LOST"); assert_reason("stm32_session_lost");
+ char notice[1024]={0};int n=(int)recv(peer,notice,sizeof(notice)-1U,0);assert(n>0);
+ assert(strstr(notice,"DISCONNECT 1111111111111111 reason=stm32_session_lost") && strstr(notice,"control_hb_timeout"));
+ logged=strlen(diagnostic_log);disconnect_client("duplicate",0);assert(strlen(diagnostic_log)==logged);close(peer);
+ mock_connected=1; listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
+ const unsigned faults[]={UART_FIFO_OVF,UART_BUFFER_FULL,UART_FRAME_ERR,UART_PARITY_ERR};
+ const char *reasons[]={"uart_fifo_overflow","uart_buffer_overflow","uart_framing_error","uart_parity_error"};
+ for(unsigned i=0;i<4;i++) { peer=attach("2222222222222222");mock_fault=faults[i];owner_once();assert(client==-1);assert_reason(reasons[i]);close(peer); }
+ peer=attach("3333333333333333");mock_connected=0;bridge_transport_wifi_lost(201);owner_once();
+ assert_reason("wifi_lost");assert(strstr(diagnostic_log,"detail=201"));close(peer);mock_connected=1;
+ peer=attach("4444444444444444");mock_input="BAD\tLINE\n";owner_once();assert_reason("uart_malformed_record");close(peer);
+ peer=attach("5555555555555555");memset(uart_parser.data,'X',BRIDGE_LINE-2U);uart_parser.length=BRIDGE_LINE-2U;mock_input="X";
+ owner_once();assert_reason("uart_oversized_record");close(peer);
+ peer=attach("6666666666666666");mock_uart_read=-1;owner_once();assert_reason("uart_read_error");close(peer);mock_uart_read=0;
+ peer=attach("7777777777777777");assert(bridge_push(&uart_out,"OPEN 7777777777777777"));mock_uart_write=-1;
+ owner_once();assert_reason("uart_write_error");close(peer);mock_uart_write=1;
+ peer=attach("8888888888888888");close(peer);owner_once();assert_reason("tcp_receive_eof");
+ peer=attach("9999999999999999");assert(send(peer,"M 1\t2\n",6,0)==6);owner_once();assert_reason("tcp_malformed_record");close(peer);
+ peer=attach("aaaaaaaaaaaaaaaa");char oversized[65];memset(oversized,'X',sizeof(oversized));assert(send(peer,oversized,sizeof(oversized),0)==(int)sizeof(oversized));
+ owner_once();assert_reason("tcp_oversized_record");close(peer);
+ peer=attach("bbbbbbbbbbbbbbbb");ready=0;opened_at=0;mock_time=1000;owner_once();assert_reason("session_handshake_timeout");close(peer);
+ peer=attach("cccccccccccccccc");int small=1024;assert(setsockopt(client,SOL_SOCKET,SO_SNDBUF,&small,sizeof(small))==0);
+ char fill[1024];memset(fill,'X',sizeof(fill));while(send(client,fill,sizeof(fill),send_flags())>0) {}
+ assert(errno==EAGAIN || errno==EWOULDBLOCK);assert(bridge_push(&tcp_out,"LOG queued"));last_progress=0;mock_time=1500;
+ owner_once();assert_reason("tcp_output_stalled");close(peer);
+ peer=attach("dddddddddddddddd");assert(shutdown(peer,SHUT_RD)==0);assert(bridge_push(&tcp_out,"LOG queued"));
+ owner_once();assert_reason("tcp_send_error");close(peer);
+ peer=attach("eeeeeeeeeeeeeeee");close(client);owner_once();assert_reason("tcp_receive_error");close(peer);
+ close(listener);listener=-1;
+ /* Acceptance uses the real host listening socket, with the same sole owner. */
+ listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);
+ struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+ assert(bind(listener,(struct sockaddr *)&address,sizeof(address))==0);assert(listen(listener,1)==0);
+ socklen_t size=sizeof(address);assert(getsockname(listener,(struct sockaddr *)&address,&size)==0);
+ peer=socket(AF_INET,SOCK_STREAM,0);assert(peer>=0);assert(connect(peer,(struct sockaddr *)&address,sizeof(address))==0);
+ accept_client(mock_time);assert(client>=0 && strstr(diagnostic_log,"accepted session="));disconnect_client("test_cleanup",0);close(peer);close(listener);listener=-1;
+ assert_reason("tcp_tx_queue_full");assert_reason("uart_tx_queue_full");
+ peer=attach("abababababababab");assert(bridge_push(&tcp_out,"DATA partial"));
+ assert(send(client,tcp_out.data[tcp_out.tail],3U,send_flags())==3);bridge_advance(&tcp_out,3U);
+ disconnect_client("partial_record",0);
+ char partial[64]={0};assert(recv(peer,partial,sizeof(partial),0)==3 && memcmp(partial,"DAT",3U)==0);
+ assert(recv(peer,partial,sizeof(partial),0)==0);close(peer); /* Never splice DISCONNECT into the partial record. */
+}
+int main(void) {
+ int peer=attach("aaaaaaaaaaaaaaaa");
+ tcp_record("M 200 200"); tcp_record("CONTROL_HB");
+ assert(uart_out.count==2 && strncmp(uart_out.data[uart_out.tail],"CMD aaaaaaaaaaaaaaaa M 200 200",29)==0);
+ bridge_advance(&uart_out,3); disconnect_client("test_cleanup",0);
+ assert(client==-1 && uart_out.count==1 && uart_out.offset==0 && tcp_out.count==0);
+ assert(strncmp(uart_out.data[uart_out.tail],"\nCLOSE aaaaaaaaaaaaaaaa",23)==0); close(peer);
+ peer=attach("bbbbbbbbbbbbbbbb");
+ uart_record("RSP aaaaaaaaaaaaaaaa [MOTOR] OK ARM"); assert(!tcp_out.count);
+ uart_record("RSP bbbbbbbbbbbbbbbb [MOTOR] OK ARM"); assert(tcp_out.count==1);
+ assert(strncmp(tcp_out.data[tcp_out.tail],"[MOTOR] OK ARM",13)==0);
+ memset(&tcp_out,0,sizeof(tcp_out));
+ /* Slow TCP client: reception remains bounded, output overflow invalidates. */
+ for(unsigned i=0;i<=BRIDGE_SLOTS;i++) uart_record("DATA 1 0 0");
+ assert(client==-1 && tcp_out.count==0 && uart_out.count==1); close(peer);
+ peer=attach("cccccccccccccccc"); ready=0;
+ tcp_record("ARM"); assert(uart_out.count==0 && tcp_out.count==1); disconnect_client("test_cleanup",0); close(peer);
+ peer=attach("dddddddddddddddd");
+ for(unsigned i=0;i<=BRIDGE_SLOTS;i++) tcp_record("M 1 1");
+ assert(client==-1 && uart_out.count==1 && strncmp(uart_out.data[uart_out.tail],"\nCLOSE ",7)==0); close(peer);
+ /* The actual owner loop responds to Wi-Fi loss and does a partial write. */
+ peer=attach("eeeeeeeeeeeeeeee"); wifi_bit=1; mock_connected=0;
+ if(!setjmp(stop_loop)) transport_task(NULL);
+ assert(client==-1 && mock_writes==1 && uart_out.offset==1); close(peer);
+ /* UART fault likewise invalidates from the owner, not an ISR/socket race. */
+ peer=attach("ffffffffffffffff"); mock_connected=1; mock_fault=1;
+ listener=socket(AF_INET,SOCK_STREAM,0); assert(listener>=0); assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
+ if(!setjmp(stop_loop)) transport_task(NULL);
+ assert(client==-1 && uart_out.count==1); close(peer); close(listener); listener=-1;
+ reason_tests();
+ puts("PASS: disconnect diagnostics, nonblocking notification, real transport session filtering, control/output overflow, slow-client loss, Wi-Fi/UART faults and nonblocking partial writes");
+}

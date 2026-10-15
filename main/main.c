@@ -17,6 +17,7 @@
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "nvs_flash.h"
+#include "bridge_transport.h"
 
 #define WIFI_SSID       "disal-robots"
 #define WIFI_PASS       "dis@l1234"
@@ -35,7 +36,7 @@ static const char *TAG = "UART_TCP_BRIDGE";
 static EventGroupHandle_t wifi_event_group;
 static const int WIFI_CONNECTED_BIT = BIT0;
 
-static volatile int client_sock = -1;
+static QueueHandle_t uart_events;
 
 static void wifi_event_handler(void *arg,
                                esp_event_base_t event_base,
@@ -45,7 +46,10 @@ static void wifi_event_handler(void *arg,
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
-        ESP_LOGW(TAG, "Wi-Fi disconnected, retrying...");
+        const wifi_event_sta_disconnected_t *event = event_data;
+        int reason = event ? event->reason : 0;
+        bridge_transport_wifi_lost(reason);
+        ESP_LOGW(TAG, "Wi-Fi disconnected reason=%d, retrying...", reason);
         xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
         esp_wifi_connect();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
@@ -99,7 +103,7 @@ static void uart_init(void)
         .source_clk = UART_SCLK_DEFAULT,
     };
 
-    ESP_ERROR_CHECK(uart_driver_install(UART_PORT, UART_BUF_SIZE * 2, 0, 0, NULL, 0));
+    ESP_ERROR_CHECK(uart_driver_install(UART_PORT, UART_BUF_SIZE * 2, 0, 16, &uart_events, 0));
     ESP_ERROR_CHECK(uart_param_config(UART_PORT, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(UART_PORT,
                                  UART_TX_PIN,
@@ -118,125 +122,6 @@ static void led_init(void)
     ESP_LOGI(TAG, "LED ready on GPIO %d", LED_GPIO);
 }
 
-static void tcp_server_task(void *pvParameters)
-{
-    int listen_sock;
-    struct sockaddr_in server_addr;
-
-    listen_sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
-    if (listen_sock < 0) {
-        ESP_LOGE(TAG, "Unable to create socket: errno %d", errno);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    int opt = 1;
-    setsockopt(listen_sock, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
-
-    server_addr.sin_family = AF_INET;
-    server_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-    server_addr.sin_port = htons(TCP_PORT);
-
-    if (bind(listen_sock, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
-        ESP_LOGE(TAG, "Socket bind failed: errno %d", errno);
-        close(listen_sock);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    if (listen(listen_sock, 1) < 0) {
-        ESP_LOGE(TAG, "Socket listen failed: errno %d", errno);
-        close(listen_sock);
-        vTaskDelete(NULL);
-        return;
-    }
-
-    ESP_LOGI(TAG, "TCP server listening on port %d", TCP_PORT);
-
-    while (1) {
-        struct sockaddr_in client_addr;
-        socklen_t addr_len = sizeof(client_addr);
-
-        ESP_LOGI(TAG, "Waiting for TCP client...");
-        int sock = accept(listen_sock, (struct sockaddr *)&client_addr, &addr_len);
-        if (sock < 0) {
-            ESP_LOGE(TAG, "accept() failed: errno %d", errno);
-            continue;
-        }
-
-        ESP_LOGI(TAG, "Client connected: %s", inet_ntoa(client_addr.sin_addr));
-
-        if (client_sock >= 0) {
-            close(client_sock);
-        }
-        client_sock = sock;
-
-        // Optional welcome message
-        const char *msg = "ESP32 UART->TCP bridge connected\r\n";
-        send(client_sock, msg, strlen(msg), 0);
-
-        // Keep this task alive until client disconnects
-        char dummy[32];
-        while (1) {
-            int len = recv(client_sock, dummy, sizeof(dummy), MSG_DONTWAIT);
-            if (len == 0) {
-                ESP_LOGI(TAG, "Client disconnected");
-                close(client_sock);
-                client_sock = -1;
-                break;
-            } else if (len < 0) {
-                if (errno == EWOULDBLOCK || errno == EAGAIN) {
-                    vTaskDelay(pdMS_TO_TICKS(100));
-                    continue;
-                } else {
-                    ESP_LOGW(TAG, "Client socket error, closing: errno %d", errno);
-                    close(client_sock);
-                    client_sock = -1;
-                    break;
-                }
-            }
-        }
-    }
-}
-
-static void uart_reader_task(void *pvParameters)
-{
-    uint8_t data[UART_BUF_SIZE + 1];
-
-    while (1) {
-        int len = uart_read_bytes(UART_PORT, data, UART_BUF_SIZE, pdMS_TO_TICKS(50));
-        if (len > 0) {
-            data[len] = 0;
-
-            ESP_LOGI(TAG, "UART RX (%d bytes): %s", len, (char *)data);
-
-            // 🔵 Blink LED on activity
-            gpio_set_level(LED_GPIO, 1);  // ON
-
-            // Keep your logic
-            if (strstr((char *)data, "STM32 LED off") != NULL) {
-                ESP_LOGI(TAG, "ESP LED ON (command)");
-            } else if (strstr((char *)data, "STM32 LED on") != NULL) {
-                ESP_LOGI(TAG, "ESP LED OFF (command)");
-            }
-
-            // Send over TCP
-            if (client_sock >= 0) {
-                int sent = send(client_sock, data, len, 0);
-                if (sent < 0) {
-                    ESP_LOGW(TAG, "send() failed, closing client: errno %d", errno);
-                    close(client_sock);
-                    client_sock = -1;
-                }
-            }
-
-            // 🔵 Short blink duration
-            vTaskDelay(pdMS_TO_TICKS(50));
-            gpio_set_level(LED_GPIO, 0);  // OFF
-        }
-    }
-}
-
 void app_main(void)
 {
     esp_err_t ret = nvs_flash_init();
@@ -250,6 +135,5 @@ void app_main(void)
     uart_init();
     wifi_init_sta();
 
-    xTaskCreate(tcp_server_task, "tcp_server_task", 4096, NULL, 5, NULL);
-    xTaskCreate(uart_reader_task, "uart_reader_task", 4096, NULL, 5, NULL);
+    bridge_transport_start(wifi_event_group, WIFI_CONNECTED_BIT, UART_PORT, LED_GPIO, uart_events);
 }
