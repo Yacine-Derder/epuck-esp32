@@ -1,5 +1,12 @@
 # Wi-Fi robot link protocol
 
+Wi-Fi modem sleep is disabled and the application/second-stage bootloader
+console uses USB Serial/JTAG exclusively, keeping UART1 GPIO43/44 for STM32.
+See [latency configuration and hardware comparison](docs/wifi_latency.md)
+for power tradeoffs, defaults/effective-config checks, build/flash/monitor
+commands, and the ping/client comparison. This addresses suspected causes;
+hardware verification is still required.
+
 Architecture: computer TCP/Wi-Fi → ESP32 UART1 → STM32 USART3 → e-puck
 USART1. The STM32 owns all robot parsing, motor ownership, acknowledgements
 and watchdog decisions. ESP32 only transports records. E-puck firmware is

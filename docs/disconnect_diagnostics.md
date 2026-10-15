@@ -95,9 +95,12 @@ them. They are separate from the following monitor-only reproduction steps.
    Exit IDF Monitor with Ctrl-]. It owns only the ESP32 USB log port, not the
    TCP connection or STM32 UART. No credentials are included in new logs.
 
-   The current local SDK configuration has INFO logging and secondary USB
-   Serial/JTAG console output enabled, so the built-in USB port carries these
-   ESP_LOG messages. Retain those console settings on a fresh configuration.
+   The tracked defaults and current local SDK configuration select USB
+   Serial/JTAG as the primary console with no secondary console. The built-in
+   USB port carries ESP_LOG and second-stage bootloader messages; GPIO43/44
+   remain exclusive to the STM32 link after initial ROM boot. See
+   [latency configuration](wifi_latency.md) for defaults checks, modem-sleep
+   settings and the hardware comparison.
 
 2. In terminal B, open the **STM32** USB CDC console at 115200. Use the
    installed SDK Python, which includes pyserial. `--eol LF` makes Enter send

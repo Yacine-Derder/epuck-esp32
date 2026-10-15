@@ -69,6 +69,12 @@ static void wifi_init_sta(void)
 
     wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
     ESP_ERROR_CHECK(esp_wifi_init(&cfg));
+    /* Keep client heartbeats from waiting for modem-sleep wakeups. */
+    ESP_ERROR_CHECK(esp_wifi_set_ps(WIFI_PS_NONE));
+    wifi_ps_type_t power_save;
+    ESP_ERROR_CHECK(esp_wifi_get_ps(&power_save));
+    ESP_LOGI(TAG, "Wi-Fi power save=%d (WIFI_PS_NONE=%d)",
+             (int)power_save, (int)WIFI_PS_NONE);
 
     ESP_ERROR_CHECK(esp_event_handler_instance_register(
         WIFI_EVENT, ESP_EVENT_ANY_ID, &wifi_event_handler, NULL, NULL));
