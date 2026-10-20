@@ -138,7 +138,7 @@ static void uart_record(const char *line)
   } else if (strncmp(line,"RSP ",4U)==0) {
     if (!bridge_reply_matches(line,session)) return;
     line+=21;
-  } else if (strncmp(line,"DATA ",5U)!=0 && strncmp(line,"LOG ",4U)!=0) return;
+  } else if (strncmp(line,"DATA ",5U)!=0 && strncmp(line,"DATA2 ",6U)!=0 && strncmp(line,"LOG ",4U)!=0) return;
   if (!bridge_push(&tcp_out,line)) disconnect_client("tcp_tx_queue_full",0); /* Slow client cannot block RX. */
 }
 static void tcp_record(const char *line)

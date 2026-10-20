@@ -12,6 +12,52 @@ client = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(client)
 
 class ClientTests(unittest.TestCase):
+    def test_stream_validation_and_20hz_network_updates(self):
+        for text, expected in [("stream 100", "STREAM 100"), ("StReAm +50", "STREAM 50"),
+                               ("stream 0", "STREAM 0"), ("STREAM 10000", "STREAM 10000"),
+                               ("stream_status", "STREAM_STATUS")]:
+            self.assertEqual(client.validate(text), expected)
+        for text in ["STREAM", "STREAM -0", "STREAM -1", "STREAM 49", "STREAM 10001",
+                     "STREAM 100 extra", "STREAM_STATUS 1", "STREAM 5e1", "STREAM 50.0"]:
+            with self.assertRaises(ValueError): client.validate(text)
+        local, peer = socket.socketpair()
+        peer.settimeout(.01)
+        stop, done, ready = threading.Event(), threading.Event(), threading.Event()
+        commands, state = queue.Queue(32), client.ClientState()
+        worker = threading.Thread(target=client.run_network, args=(local, commands, stop, done),
+            kwargs={"ready_event": ready, "on_record": state.receive, "on_disconnect": state.disconnected})
+        worker.start()
+        seen = bytearray()
+        try:
+            peer.sendall(b"SESSION 0123456789abcdef READY\n")
+            self.assertTrue(ready.wait(.5))
+            for command in ["stream 50", "stream_status"]:
+                client.submit_command(command, commands, ready, state)
+            for i in range(12):
+                record = f"DATA {i} 0 1 " + " ".join(["0"]*21)
+                peer.sendall((record+"\n[MOTOR] OK HB\n").encode())
+                until=time.monotonic()+.05
+                while time.monotonic()<until:
+                    try: seen.extend(peer.recv(1024))
+                    except socket.timeout: pass
+            peer.sendall(b"[STREAM] OK STREAM acknowledged=50 ms desired=50 ms\n")
+            stop.set()
+            deadline=time.monotonic()+1
+            while b"STOP\n" not in seen and time.monotonic()<deadline:
+                try: seen.extend(peer.recv(1024))
+                except socket.timeout: pass
+            self.assertIn(b"STOP\n", seen)
+            peer.sendall(b"[MOTOR] OK STOP\n"); worker.join(1.5)
+            self.assertTrue(done.is_set())
+            self.assertIn(b"STREAM 50\n", seen); self.assertIn(b"STREAM_STATUS\n", seen)
+            self.assertGreaterEqual(seen.count(b"CONTROL_HB\n"), 5)
+            self.assertEqual(state.snapshot()[1].sequence, 11)
+            events=[text for _, text in state.snapshot()[2]]
+            self.assertFalse(any(text.startswith("DATA ") or text=="[MOTOR] OK HB" for text in events))
+            self.assertTrue(any("acknowledged=50" in text for text in events))
+        finally:
+            stop.set(); peer.close(); worker.join(2)
+
     def test_validation(self):
         self.assertEqual(client.validate("M -1000 +1000"), "M -1000 1000")
         for command in ["M 1001 0", "M 0", "ARM 1", "HB", "M 1.0 0", "M 1 2 3"]:

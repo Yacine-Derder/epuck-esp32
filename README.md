@@ -7,10 +7,68 @@ for power tradeoffs, defaults/effective-config checks, build/flash/monitor
 commands, and the ping/client comparison. This addresses suspected causes;
 hardware verification is still required.
 
+## Interactive Wi-Fi terminal
+
+Install the optional terminal dependency in a local virtual environment:
+
+```bash
+cd /home/derder/Documents/epuck-esp32
+python3 -m venv .venv
+.venv/bin/python -m pip install -r tools/requirements.txt
+.venv/bin/python tools/wifi_client.py 192.168.1.35 --ui
+```
+
+The full-screen interface keeps command editing separate from a live raw
+sensor panel and the last 200 events. Enter sends a command; PgUp/PgDn browse
+events while input retains focus. Up/Down navigate the last 100 commands;
+arrows, Home/End, Backspace/Delete and selection retain their normal behavior.
+Resizing keeps the command row at the bottom. Keywords accept either case (`arm`,
+`m 200 200`, `stop`, `help`, `motor_status`, `stream 100`, `stream_status`). Blank input is ignored. Local
+queue confirmations explicitly say **not acknowledged**; actual motor
+acknowledgements/errors appear when received. No command is accepted before
+SESSION READY and no movement is replayed after reconnecting.
+
+```bash
+.venv/bin/python tools/wifi_client.py 192.168.1.35 --logs
+.venv/bin/python tools/wifi_client.py 192.168.1.35 --verbose
+.venv/bin/python tools/wifi_client.py 192.168.1.35 --logs --verbose
+python3 tools/wifi_client.py 192.168.1.35 --plain
+python3 tools/wifi_client.py 192.168.1.35 --plain --logs > wifi-session.log
+```
+
+`--logs` includes optional LOG records; `--verbose` also shows routine
+successful `[MOTOR] OK HB` records, hidden by default only at the display layer.
+Plain mode needs no third-party dependencies and is selected automatically
+for redirected input/output or unsupported terminals. Small terminals keep the
+UI; missing UI dependencies produce an installation error instead of silently
+switching to scrolling output. `--ui` requires the persistent interface.
+Ctrl-C/Ctrl-D (EOF) exits with best-effort STOP; a network disconnect exits promptly even if no input is being typed. See
+[client interface details and tests](docs/wifi_client.md) for age semantics,
+display limits, and terminal requirements.
+
 Architecture: computer TCP/Wi-Fi → ESP32 UART1 → STM32 USART3 → e-puck
 USART1. The STM32 owns all robot parsing, motor ownership, acknowledgements
 and watchdog decisions. ESP32 only transports records. E-puck firmware is
 unchanged. All existing pin assignments and 115200 8N1 configurations remain.
+
+## Sensor streaming commands
+
+Build compatible STM32 and ESP32 firmware for compact DATA2 telemetry; the
+Python client runs directly. The dsPIC firmware remains unchanged. Wait for READY, then type:
+
+```text
+STREAM 100
+STREAM 50
+STREAM 0
+STREAM_STATUS
+```
+
+100 ms is 10 Hz; 50 ms is 20 Hz; 0 stops automatic DATA without falling back
+to polling. Valid periods are 0 or 50..10000 ms. Configuration does not acquire
+motor ownership. A queued response is not an acknowledgement. See
+[streaming configuration and recovery](docs/sensor_streaming.md) for the STM32
+boot setting, state fields, timeout/retry rules and tests. Sensor transmission
+rate does not necessarily equal physical sampling rate.
 
 ## Framing and sessions
 
@@ -31,7 +89,7 @@ boundary. STM32 validates commands again after unwrapping.
 | STM32 → ESP32 | `SESSION <id> LOST` | Invalid framing, UART loss, response overflow or client-heartbeat expiry. |
 | STM32 → ESP32 | `DIAG <id> <fields>` | Best-effort invalidation diagnostics; also available on STM32 USB. |
 | STM32 → ESP32 | `RSP <id> <text>` | Source-specific command response, acknowledgement or error. |
-| STM32 → ESP32 | `DATA ...` | Validated sensor telemetry, described below. |
+| STM32 → ESP32 | `DATA2 ...` | Compact telemetry; legacy DATA also accepted, described below. |
 | STM32 → ESP32 | `LOG <text>` | Debug/Qorvo output; never a command or telemetry record. |
 
 IDs are 16 lowercase hexadecimal characters, generated from 64 random bits
@@ -86,26 +144,27 @@ wheel speed. Steps counters are commanded steps, not measured wheel motion.
 
 ## Sensor telemetry
 
-One-shot `R\n` polling and PING remain once per second. Every newly accepted
-DATA sample is offered to the USART3 queue independently of USB or TCP
-connectivity. No invalid or uninitialized sample is published.
+Normal acquisition defaults to1000ms; no periodic R polling is used. PING and
+safety control retain their independent deadlines. The latest valid new sample
+is offered at most once per1000ms; faster acquisition is coalesced. Sequence gaps
+can therefore be intentional and do not measure network loss.
 
 ```text
-DATA sequence age_ms epuck_time_ms prox0 ... prox7 light0 ... light7 acc_x acc_y acc_z steps_left steps_right
+DATA2 sequence age_ms epuck_time_ms prox0 ... prox7 acc_x acc_y acc_z steps_left steps_right
 ```
 
-Exactly 24 decimal fields follow DATA:
+Exactly16 decimal numeric fields follow DATA2: uint32 sequence and age_ms,
+uint16 peer time_ms, eleven int16 proximity/accelerometer readings, and two
+int32 commanded-step counters. Sequence/tick arithmetic wraps modulo2^32 and
+peer time modulo2^16. Age excludes later queue/network delays. Steps are not
+measured motion. No light-sensor values are transmitted. Raw dsPIC DATA still
+contains its original22 numeric fields, including lights; that parser is unchanged.
 
-| Fields | Type and meaning |
-| --- | --- |
-| sequence | uint32, accepted-record counter; wraps modulo 2^32. Gaps indicate missing samples/backpressure. |
-| age_ms | uint32, unsigned STM32 tick difference from full-record acceptance to publication. Tick arithmetic wraps modulo 2^32. It excludes network/transmit queue delay. |
-| epuck_time_ms | uint16, peer milliseconds wrapping every 65536 ms. |
-| prox[8], light[8], acc[3] | int16 raw readings, no calibration/unit conversion. |
-| steps_left, steps_right | int32 commanded-step counters, not encoders/measured motion. |
-
-Valid accelerometer readings require JE1 bridges **33–34, 35–36, 37–38**.
-Sensors may become stale; inspect age, sequence progress and arrival time.
+The updated ESP bridge/client also accept legacy DATA with24 numeric fields
+(the same metadata/readings plus8 lights). New STM32 DATA2 needs the updated
+ESP allowlist; an old bridge drops that prefix. The client omits light display.
+Accelerometer readings require JE1 bridges33–34,35–36,37–38. Inspect age,
+sequence progress and client arrival time; raw values can repeat.
 
 ## Bounded buffering and failures
 
@@ -162,7 +221,7 @@ Hardware verification (no hardware was flashed by this change):
    USB unplugged; HELP/MOTOR_STATUS should work without arming.
 4. With wheels lifted, explicitly ARM, wait for OK ARM, then `M 200 200`,
    `M -200 200`, MOTOR_STATUS and STOP. Verify requested versus acknowledged
-   speeds and OK STOP. Sensor polling must continue.
+   speeds and OK STOP. Sensor streaming must continue.
 5. Repeat on USB. While one source owns the session, verify the other's ARM/M
    are rejected and STOP is accepted from either. Unplug USB during a Wi-Fi
    session and verify it continues; unplug it during a USB session and verify
@@ -175,8 +234,9 @@ Hardware verification (no hardware was flashed by this change):
    LED behavior and control watchdogs together. Never infer reversed wiring
    from missing replies alone.
 
-The Python client uses standard-library threads/queues/select so stdin does
-not delay its heartbeat. It sends nothing before a valid SESSION READY. Ctrl-C/EOF cancels queued commands and sends STOP
+The Python client keeps standard-library networking in a dedicated thread;
+its optional prompt_toolkit UI cannot delay heartbeats with input or rendering.
+It sends nothing before a valid SESSION READY. Ctrl-C/EOF cancels queued commands and sends STOP
 best effort before closing. It never reconnects, arms or replays movement
 implicitly. `--logs` shows debug records; default output suppresses LOG.
 

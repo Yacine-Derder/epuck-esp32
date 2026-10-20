@@ -1,0 +1,2 @@
+# Optional for full-screen UI. --plain works with the Python standard library.
+prompt_toolkit>=3.0.52,<4

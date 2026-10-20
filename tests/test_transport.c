@@ -100,6 +100,26 @@ static void reason_tests(void) {
  assert(recv(peer,partial,sizeof(partial),0)==0);close(peer); /* Never splice DISCONNECT into the partial record. */
 }
 int main(void) {
+ /* Generic streaming commands and both telemetry versions pass through the
+  * actual transport, preserving envelopes and per-session replies. */
+ int stream_peer=attach("0123456789abcdef");
+ const char *stream_commands[]={"STREAM 100","STREAM 50","STREAM 0","STREAM_STATUS"};
+ for(unsigned i=0;i<4;i++) {
+  tcp_record(stream_commands[i]); size_t n; const char *record=bridge_front(&uart_out,&n);
+  char expected[96]; snprintf(expected,sizeof(expected),"CMD 0123456789abcdef %s\n",stream_commands[i]);
+  assert(record && strcmp(record,expected)==0); bridge_advance(&uart_out,n);
+ }
+ uart_record("RSP 0123456789abcdef [STREAM] OK STREAM acknowledged=50 ms");
+ assert(strncmp(tcp_out.data[tcp_out.tail],"[STREAM] OK STREAM",18)==0);
+ memset(&tcp_out,0,sizeof(tcp_out));
+ for(unsigned i=0;i<20;i++) {
+  char data[256]; snprintf(data,sizeof(data),"DATA %u 0 7 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -20 21",i);
+  if (i%2) snprintf(data,sizeof(data),"DATA2 %u 0 7 0 0 0 0 0 0 0 0 1 2 3 -20 21",i);
+  uart_record(data); size_t n; const char *record=bridge_front(&tcp_out,&n);
+  assert(record && strncmp(record,data,strlen(data))==0); bridge_advance(&tcp_out,n);
+  assert(client>=0 && ready);
+ }
+ disconnect_client("test_cleanup",0); close(stream_peer);
  int peer=attach("aaaaaaaaaaaaaaaa");
  tcp_record("M 200 200"); tcp_record("CONTROL_HB");
  assert(uart_out.count==2 && strncmp(uart_out.data[uart_out.tail],"CMD aaaaaaaaaaaaaaaa M 200 200",29)==0);
