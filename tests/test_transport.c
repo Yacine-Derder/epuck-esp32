@@ -99,6 +99,20 @@ static void reason_tests(void) {
  char partial[64]={0};assert(recv(peer,partial,sizeof(partial),0)==3 && memcmp(partial,"DAT",3U)==0);
  assert(recv(peer,partial,sizeof(partial),0)==0);close(peer); /* Never splice DISCONNECT into the partial record. */
 }
+static void uwb_telemetry_tests(void) {
+ int peer=attach("aabbccddaabbccdd");mulTelemetry_t r={.type=mulTlmRange,.node=0x10,.peer=0x11,.radio=2,.mode=1,.role=1,.epoch=1,.rawMm=1234};char line[MUL_TLM_LINE];
+ assert(mulTelemetryEncode(line,sizeof(line),&r));
+ for(unsigned i=0;i<BRIDGE_SLOTS+3;i++)uart_record(line);
+ assert(client>=0&&telemetry_out.count==BRIDGE_SLOTS&&telemetry_drops>=3&&tcp_out.count==0);
+ assert(bridge_push(&tcp_out,"[MOTOR] OK STOP"));
+ /* Full optional queue never disconnects or consumes reserved control slots. */
+ char bad[MUL_TLM_LINE];memcpy(bad,line,sizeof(bad));bad[30]='?';uint32_t corrupt=telemetry_corrupt;uart_record(bad);assert(telemetry_corrupt==corrupt+1&&client>=0);
+ bridge_parser_t parser={0};for(unsigned i=0;i<strlen(line);i++)assert(bridge_parse(&parser,(unsigned char)line[i],318)==0);
+ assert(bridge_parse(&parser,'\n',318)==1&&mulTelemetryDecode(parser.data,&r));
+ disconnect_client("test_cleanup",0);close(peer);assert(!telemetry_out.count);
+ uart_record(line);assert(!telemetry_out.count);
+ puts("UWB optional queue saturation/CRC/frame recovery/control isolation/disconnected purge passed");
+}
 int main(void) {
  /* Generic streaming commands and both telemetry versions pass through the
   * actual transport, preserving envelopes and per-session replies. */
@@ -148,6 +162,6 @@ int main(void) {
  listener=socket(AF_INET,SOCK_STREAM,0); assert(listener>=0); assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
  if(!setjmp(stop_loop)) transport_task(NULL);
  assert(client==-1 && uart_out.count==1); close(peer); close(listener); listener=-1;
- reason_tests();
+ reason_tests();uwb_telemetry_tests();
  puts("PASS: disconnect diagnostics, nonblocking notification, real transport session filtering, control/output overflow, slow-client loss, Wi-Fi/UART faults and nonblocking partial writes");
 }

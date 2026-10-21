@@ -1,0 +1,29 @@
+{
+  "url": "https://github.com/Yacine-Derder/lps-node-firmware.git",
+  "revision": "e3ef3ce9f7b43c045f15e3fb4918c6b746f9b7a9",
+  "path": "portable/mul_core",
+  "sha256": {
+    "LICENSE": "c011ab8ee407a146225305a9038baf0f3bd80883507fd3d34da2823c5dcb4e5a",
+    "README.md": "07926ffe3b46a9db85d5b02f4a385dda5c05ba26cd2baf72c6191df0b2806f99",
+    "mul_ads.c": "41fffbcdbeb1ecc7b0df0bc516bd5e8453c8a5b4fe6f3b4d121200f088f62036",
+    "mul_ads.h": "a457a6086b74c08fbe2fc3f3e3bf06cf0fc3a0d2c6bb8d3fb81c56829caae98e",
+    "mul_beacon.c": "d6691f5f07b803097869ff762af0c9a7e24f453e7c5ed2345f797205dcfa911c",
+    "mul_beacon.h": "4c43f56777e7ec37f6d89131e0289ba47a9183fb86de644a5ac91fb9c1d560a0",
+    "mul_common.c": "e2685d14be3dd86218b9dd7ffcf3578b01ecf9523c1a011e5067861bba697dc9",
+    "mul_common.h": "51d5578359078f0d51c8c6b4004de8c0664eb734c433695ba7dd42cdadec19ca",
+    "mul_core.c": "2603d2f9cad9b7ec2cf722eeab43d389722d058facbdce42b39512b2d9f379ef",
+    "mul_core.h": "eb5cda3395f2bc4c8ab7a2fba478b2223ebd2771c2ee0947893df88af2bdaa21",
+    "mul_diag_config.h": "8dbc488fbe4ebe68067fe203c6028359a88128c80125e1a50107bc22c470a290",
+    "mul_telemetry.c": "f91d94a9d207069da013050ae259f6bd39de4d30f592f510827ceb97fb1075c1",
+    "mul_telemetry.h": "005055236cce86fbf212c32d24c50dbb76868cf87101d2e952658318a51b2b6e",
+    "mul_time.c": "a49deb11e44716ac0bfac6dce545d204984498ce23aaedfec40b12aff8db9c3d",
+    "mul_time.h": "a40bc2bbc43a51146eeb0866afa57467000c68b57fc47f7718e3410bae3e468d",
+    "tests/golden.h": "0d556c4119f74466b05fab8b2b7197fe1cd60c87ecde8c0e08600ed83f870a7d",
+    "tests/run.sh": "a4202f34dc4b458bec5c59d1048b38cff83597e50c73d0b22feb617b9c8371af",
+    "tests/test_ads.c": "38122cf643ace18f7e0411b65b746d76a59c9180f08dd992fd6fce69ddcef452",
+    "tests/test_core.c": "d1005bca50450f80af8ae14c2cdcb02240e5b91f133839e50ad5206ac2226d8e",
+    "tests/test_infrastructure.c": "4d0c817a4a3d435331d6298a5b2f50aef00cb969327bea60398b52747ceb5dac",
+    "tests/vectors.json": "4a40d06a25fd1d460d1e37997051ec453b452c293587bd671a8a4635628a14b4",
+    "verify.py": "7ef9859035f78cc05f443d43f9b531f3d1ae8869e745e3bb87fbdfefa138da2f"
+  }
+}
