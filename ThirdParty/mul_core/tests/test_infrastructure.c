@@ -10,6 +10,11 @@ int main(void){
  char line[MUL_TLM_LINE];assert(mulTelemetryEncode(line,sizeof(line),&r));assert(mulTelemetryDecode(line,&d));assert(d.rawMm==INT32_MIN&&d.calMm==INT32_MAX&&d.epoch==UINT64_MAX&&d.stamps[0]==MUL_TIMESTAMP_MASK);
  for(unsigned i=0;i<309;i++){char old=line[i];line[i]='?';assert(!mulTelemetryDecode(line,&d));line[i]=old;}
  for(unsigned i=0;i<309;i++){char old=line[i];line[i]=0;assert(!mulTelemetryDecode(line,&d));line[i]=old;}
+ /* Decode a genuine shorter v1 record, not a v2 prefix alias. */
+ uint8_t old[128]={0};for(unsigned i=0;i<126;i++){unsigned v;assert(sscanf(line+5+2*i,"%2x",&v)==1);old[i]=(uint8_t)v;}
+ old[2]=1;uint16_t crc=mulTelemetryCrc(old,126);old[126]=(uint8_t)crc;old[127]=(uint8_t)(crc>>8);
+ char v1[262];memcpy(v1,"UWB1 ",5);for(unsigned i=0;i<128;i++)snprintf(v1+5+2*i,3,"%02X",old[i]);
+ assert(mulTelemetryDecode(v1,&d)&&d.stamps[0]==MUL_TIMESTAMP_MASK&&d.rawMm==INT32_MIN&&d.radioErrors==0&&d.remoteEpoch==0);
  mulBeacon_t b={.source=255,.radio=2,.epoch=123,.sequence=0,.previousSequence=UINT32_MAX,.previousTx=MUL_TIMESTAMP_MASK,.markerValid=true},bd;uint8_t f[56];
  assert(mulBeaconEncode(f,sizeof(f),&b));assert(mulBeaconDecode(f,sizeof(f),&bd)&&bd.epoch==123&&bd.previousTx==MUL_TIMESTAMP_MASK);
  for(unsigned i=0;i<56;i++){f[i]^=0x80;if(i!=13&&i<28)assert(!mulBeaconDecode(f,sizeof(f),&bd));f[i]^=0x80;}
@@ -23,6 +28,9 @@ int main(void){
  assert(mulArrivalMap(&m,(mulTimeEvent_t){a,m.sourceAnchor,true},&mapped)&&mapped==m.targetAnchor);
  int64_t delta;assert(!mulTimeDelta((mulTimeEvent_t){a,100,true},(mulTimeEvent_t){c,90,true},&delta));
  assert(!mulArrivalUpdate(&m,(mulTimeEvent_t){a,m.sourceAnchor,true},(mulTimeEvent_t){c,m.targetAnchor,true}));
+ assert(!mulTimeDelta((mulTimeEvent_t){a,100,false},(mulTimeEvent_t){a,90,true},&delta));
+ assert(!mulTimeDelta((mulTimeEvent_t){a,MUL_TIMESTAMP_MASK+1,true},(mulTimeEvent_t){a,90,true},&delta));
+ assert(!mulTimeDelta((mulTimeEvent_t){a,MUL_TIME_MAX_DELTA+1,true},(mulTimeEvent_t){a,0,true},&delta));
  a.epoch++;assert(mulArrivalUpdate(&m,(mulTimeEvent_t){a,10,true},(mulTimeEvent_t){c,20,true})&&!m.valid&&m.samples==1);
  puts("Infrastructure: telemetry CRC/truncation/width, beacon codec, domain/epoch/wrap/drift/out-of-order tests passed");
 }

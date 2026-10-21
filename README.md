@@ -274,3 +274,28 @@ with a one-second handshake bound. Disconnect diagnostics do not extend the
 500 ms network-heartbeat or existing motor watchdog deadlines.
 
 Linux build/flash/monitor commands, example failure messages and reproduction steps: [docs/disconnect_diagnostics.md](docs/disconnect_diagnostics.md).
+
+
+## UWB telemetry and offline acquisition
+
+The existing TCP3333 bridge now accepts CRC/versioned UWB1/UWB2 lines on a separate
+bounded optional queue. Control/session behavior is preserved. With Universal
+STM32 `wifi on`, `telemetry on`, and this ESP image, capture without motor commands:
+
+```sh
+python3 tools/uwb_collect.py --robot 192.168.1.21:3333 --output captures
+python3 tools/uwb_tdoa.py captures/*-robot-*.jsonl --output observations.jsonl
+```
+
+Repeat --robot for multiple boards. JSONL includes host reception time separately
+from full40-bit UWB timestamps, epochs, raw/calibrated ranges and drop/reconnect
+information. Offline one-way arrival-clock fits do not establish global clock
+offsets; TDoA is missing_sync unless explicit external common-clock maps are
+provided. No position solver is included. The collector sends read-only session
+heartbeats and never arms/moves robots. Run `sh tests/run_host.sh` for transport,
+collector, offline and C/Python wire integration tests. Physical Wi-Fi/UWB timing
+and safety/coexistence remain user validation tasks.
+
+Full configuration, wire schemas, build paths, multi-peer scheduler assumptions,
+calibration migration and ordered hardware test campaign are maintained in the
+[STM32 network guide](https://github.com/Yacine-Derder/epuck-stm32/blob/main/docs/uwb_network.md).

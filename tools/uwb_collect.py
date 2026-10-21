@@ -72,7 +72,7 @@ async def collect(endpoint,output,stop=None):
             reconnects+=1;emit('connected',connections=reconnects)
             last=time.monotonic()
             while stop is None or not stop.is_set():
-                # Deadline independent of incoming telemetry and disk/UI work.
+                # Read-only heartbeat; stalled workstation I/O may safely expire the session.
                 if time.monotonic()-last>=.1:
                     writer.write(b'CONTROL_HB\n');await asyncio.wait_for(writer.drain(),.2);last=time.monotonic()
                 try: raw=await asyncio.wait_for(reader.readline(),.05)

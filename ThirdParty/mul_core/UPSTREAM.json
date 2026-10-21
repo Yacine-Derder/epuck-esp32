@@ -1,6 +1,6 @@
 {
   "url": "https://github.com/Yacine-Derder/lps-node-firmware.git",
-  "revision": "e3ef3ce9f7b43c045f15e3fb4918c6b746f9b7a9",
+  "revision": "3c9a6dec718d287a6ab77b29bc8c974e31c006ff",
   "path": "portable/mul_core",
   "sha256": {
     "LICENSE": "c011ab8ee407a146225305a9038baf0f3bd80883507fd3d34da2823c5dcb4e5a",
@@ -22,7 +22,7 @@
     "tests/run.sh": "a4202f34dc4b458bec5c59d1048b38cff83597e50c73d0b22feb617b9c8371af",
     "tests/test_ads.c": "38122cf643ace18f7e0411b65b746d76a59c9180f08dd992fd6fce69ddcef452",
     "tests/test_core.c": "d1005bca50450f80af8ae14c2cdcb02240e5b91f133839e50ad5206ac2226d8e",
-    "tests/test_infrastructure.c": "4d0c817a4a3d435331d6298a5b2f50aef00cb969327bea60398b52747ceb5dac",
+    "tests/test_infrastructure.c": "d155d85b70eac98fc124e47ccaa5696776e3e6fadfab54324e6c78c18faa507e",
     "tests/vectors.json": "4a40d06a25fd1d460d1e37997051ec453b452c293587bd671a8a4635628a14b4",
     "verify.py": "7ef9859035f78cc05f443d43f9b531f3d1ae8869e745e3bb87fbdfefa138da2f"
   }
