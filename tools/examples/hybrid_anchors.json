@@ -1,0 +1,4 @@
+{
+  "description": "Example geometry only: replace with surveyed fixed ALR positions in metres. Two ALRs do not identify an unconstrained 2D RLR position.",
+  "anchors": {"0x84": [0, 0], "0x85": [5, 0]}
+}

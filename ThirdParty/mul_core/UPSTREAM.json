@@ -1,10 +1,10 @@
 {
   "url": "https://github.com/Yacine-Derder/lps-node-firmware.git",
-  "revision": "6aa9c2e6c08137567ab1faa4b78e7268470c154a",
+  "revision": "12babcff77fbbc344027151801698eec287b20d5",
   "path": "portable/mul_core",
   "sha256": {
     "LICENSE": "c011ab8ee407a146225305a9038baf0f3bd80883507fd3d34da2823c5dcb4e5a",
-    "README.md": "07926ffe3b46a9db85d5b02f4a385dda5c05ba26cd2baf72c6191df0b2806f99",
+    "README.md": "04553d859736abc6051b775c82e569ba305a9bf74792ace8990fe7b1cbfbef69",
     "mul_ads.c": "41fffbcdbeb1ecc7b0df0bc516bd5e8453c8a5b4fe6f3b4d121200f088f62036",
     "mul_ads.h": "a457a6086b74c08fbe2fc3f3e3bf06cf0fc3a0d2c6bb8d3fb81c56829caae98e",
     "mul_beacon.c": "d6691f5f07b803097869ff762af0c9a7e24f453e7c5ed2345f797205dcfa911c",
@@ -18,7 +18,7 @@
     "mul_diag_config.h": "8dbc488fbe4ebe68067fe203c6028359a88128c80125e1a50107bc22c470a290",
     "mul_downlink.c": "f91a27bfb3455179e9b0f5691e9000b407e772d64966d422e9ccfdd70e2caa7a",
     "mul_downlink.h": "40a2a613f62b5e3511f8b01d22b08d852154610f7c5aa7b4d48258dd20d006ad",
-    "mul_hybrid.c": "4aa5b713cbb585b3cf28b77b8dafb8f28f722cde3d0db05cc1c7959ba85d16c6",
+    "mul_hybrid.c": "c56faccf6305296bb12f7def93764b6c0bb7218d9fbcd46c8dcf3fd5ceb2aaba",
     "mul_hybrid.h": "468a36bb6e6b882bc09ebd7cdc1669bc0616b10b6d3ab83c2656d9772ed6e73d",
     "mul_legacy_timing.h": "655de244e7483ae207b7753311665b43a859d586ffb20d230bd072853310393d",
     "mul_legacy_twr.c": "cc83a6562c18d8389d8449d5e29e53a72ec07ffc1a7d4b8712fcbbb18a82824a",
@@ -39,7 +39,7 @@
     "tests/run.sh": "0bdab357679f43a760068326009b4072a5cfff90d05ae02a3514018c0001e298",
     "tests/test_ads.c": "38122cf643ace18f7e0411b65b746d76a59c9180f08dd992fd6fce69ddcef452",
     "tests/test_core.c": "d1005bca50450f80af8ae14c2cdcb02240e5b91f133839e50ad5206ac2226d8e",
-    "tests/test_hybrid.c": "d4ef3c7b0a27399424531013b570036d386d5de786b24111fb77c48ed7137b5c",
+    "tests/test_hybrid.c": "41ee8229840bbe800e56330dcc4c26ca15893b8d456cca87dcc2c3683e3f5b3e",
     "tests/test_infrastructure.c": "0ea8def75b325569e346c1a7666830dc3562c6a416ff7b0cca13c0bb2f029fa9",
     "tests/vectors.json": "4a40d06a25fd1d460d1e37997051ec453b452c293587bd671a8a4635628a14b4",
     "verify.py": "7ef9859035f78cc05f443d43f9b531f3d1ae8869e745e3bb87fbdfefa138da2f"

@@ -8,9 +8,9 @@ package manager is added. Firmware builds require no sibling checkout/network.
 `mul_common.h/.c` preserve the legacy34-byte type1 codec, complete ALR identities,
 sequence state and signed modular40-bit helpers byte-for-byte. Their existing
 void encoder/arithmetic pointer preconditions remain unchanged. LPS `inc/src`
-forwarding files preserve build/test discovery. Clock/relation/TWR/correction/
-localization records stay in their established LPS modules; no lifecycle or
-observation fields are redefined here.
+forwarding files preserve build/test discovery. Legacy clock/relation/TWR/observation/localization APIs now forward to shared
+radio-independent implementations here; their record semantics and DW1000
+scheduler remain unchanged. Hardware RX power capture stays in LPS.
 
 `mul_core.h/.c` add status-returning bounds-checked diagnostic encode/decode,
 full84/85/86 source validation, resettable sequence accounting and caller-owned
@@ -181,3 +181,31 @@ This widening applies only to ADS; legacy observation/diagnostic source policies
 wire length/version and timestamp arithmetic remain unchanged. Existing ADS
 adapters still select their configured local/peer; old restricted firmware must
 be updated to communicate with peers outside its former allowlist.
+
+
+## Custom TDMA hybrid receiver
+
+`mul_clock`, `mul_relation`, `mul_observation`, `mul_downlink` and the pure part of
+`mul_localization` are extracted original implementations, not an alternative
+protocol. `mul_legacy_twr` is the exact84-byte inter-ALR codec/reference-unit math;
+LPS retains its hardware state machine. `mul_power_types` contains metadata only,
+without linking DW1000 bias tables into DWM3000. `mul_legacy_timing` avoids the
+STM32 CPU-tracing header's name and retains500/50/10ms compile-time slots.
+
+`mul_hybrid` composes original passive-RLR association/rate/mapping behavior and
+observes (never answers) directed inter-ALR TWR. Current full identities come from
+the legacy protocol's roster; they are not a limitation of the generic host solver.
+Receiver epochs/generations must not be confused with the follower's acquisition-
+local epoch. No globally unique ALR boot UUID exists in these packets. Stationary
+rate opt-in remains conditional; default behavior refuses geometric TDoA without
+an identifiable receiver rate. Physical antenna/power/motion uncertainty remains
+unknown. Details and compatibility matrix: docs/mul_heterogeneous.md in the root repo.
+
+Telemetry v3 retains152 bytes and309 printable characters before newline, with
+CRC16. Types1..5 retain their existing layouts; old modes encode v2. Type6 stores
+an untouched34/74/84-byte legacy frame at40..123, local RX40 at124, length at129,
+capture-age16 at130, inferred reference/follower generations32 at132/136,
+rate policy8 at140, slot16 at141, PHYerrors32 at143 and reserved zeros147..149.
+Common header0..39 retains local radio epoch and sequence. These records do not
+contain range-counter fields in their payload; ordinary summaries supply those.
+V1/v2 remain readable. A captured frame's TX remains in its source's own domain.

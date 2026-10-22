@@ -27,12 +27,14 @@ static bool twrObserve(mulHybrid_t *s,const mulTwrPacket_t *p,uint64_t rx,uint32
    const mulPower_t *a=&p->power[i],*b=&s->twr.power[i];
    if(a->powerCentiDbm!=b->powerCentiDbm||a->deltaDtu!=b->deltaDtu||a->status!=b->status||a->table!=b->table)goto rejected;
  }
- s->twr=*p;
  if(p->type==mulTwrResult) {
+   int64_t report=mulTimestampDifference(s->twr.txTimestamp,p->stamps[5]);
+   int64_t result=mulTimestampDifference(p->txTimestamp,p->stamps[4]);
+   if(report<15*INT64_C(63897600)||report>30*INT64_C(63897600)||result<30*INT64_C(63897600)||result>60*INT64_C(63897600))goto rejected;
    uint32_t raw,corrected;if(!mulTwrResults(p->stamps,p->power,&raw,&corrected)||p->tof!=(corrected==UINT32_MAX?raw:corrected))goto rejected;
    out->twrRaw=raw;out->twrCorrected=corrected;out->twrComplete=true;s->twrCompleted++;s->twrActive=false;
  }
- return true;
+ s->twr=*p;return true;
 rejected:s->twrRejected++;return false;
 }
 bool mulHybridReceive(mulHybrid_t *s,const uint8_t *f,size_t n,uint64_t rx,uint32_t age,uint32_t now,mulHybridOutput_t *out) {
@@ -41,7 +43,8 @@ bool mulHybridReceive(mulHybrid_t *s,const uint8_t *f,size_t n,uint64_t rx,uint3
  if(n==MUL_TWR_FRAME_LENGTH) {
    mulTwrPacket_t p;if(!mulTwrDecode(f,n,&p)){s->rejected++;return false;}
    s->received++; /* Capture decoded frames even if a prior TWR packet was lost. */
-   (void)twrObserve(s,&p,rx,now,out);out->packet.sequence=p.id;memcpy(out->packet.source,f+13,8);
+   if(age<=15)(void)twrObserve(s,&p,rx,now,out);else s->twrRejected++;
+   out->packet.sequence=p.id;memcpy(out->packet.source,f+13,8);
  } else {
    mulTestPacket_t p;mulRelation_t r;
    if(!mulBroadcastDecode(f,n,&p,&r)||mulAlrRoleForAddress(p.source)==mulAlrUnsupported){s->rejected++;return false;}
