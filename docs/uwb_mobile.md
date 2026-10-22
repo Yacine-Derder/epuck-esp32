@@ -27,8 +27,8 @@ positive COE as local RX slower than remote TX and ratio scaling 2^-26 (one coun
 ~14.9ppb). Its comment calls that result ppm, while its local ratio macro uses a dimensionless ratio: conversion must follow actual API/examples,
 not that wording. The2025 API guide also contradicts the bundled driver on COE
 sign (guide: local faster; driver: local slower), so that path needs a controlled
-sign/units audit before any use. At500ms,1ppb rate error corresponds to~0.15m; COE quantization
-alone is~2.23m before filtering. No such value will silently become a mobile rate.
+sign/units audit before any use. At500ms,1ppb rate error corresponds to~0.15m; one COE code step
+corresponds to~2.23m; that is resolution, not an accuracy or noise bound. No such value will silently become a mobile rate.
 Primary source: [Qorvo DW3xxx API guide](https://forum.qorvo.com/uploads/short-url/xD3TlXKvkujjdUaJWXv2b4E7GQN.pdf),
 dwt_readclockoffset / dwt_readcarrierintegrator; local bundled driver is authoritative
 for the deployed API. New hardware diagnostics would need capture before RX rearm.
@@ -150,10 +150,10 @@ hardware validation. Firmware hybrid_static remains the stationary baseline.
 No additional capture is needed to prove the observability limitation. No devices
 need reflashing for this offline prototype: STM f1047b3 already emits needed UWB3
 records when telemetry/Wi-Fi are enabled. Preserve settings/calibration and use
-tools/uwb_collect.py with the existing collector workflow. For a later physical
-study, first survey the anchors and reference-distance envelope and establish
-metrology/clock-slew bounds with a stationary baseline; only then use a controlled,
-independently measured moving trajectory within explicit speed/acceleration limits.
+tools/uwb_collect.py with the existing collector workflow. For an optional physical
+accuracy study, independently measured geometry/motion can supply validation truth;
+this does not require externally surveyed infrastructure in deployment. Establish
+metrology/clock-slew/motion bounds before claiming a conditional hardware envelope.
 Compare simultaneous geometric truth at the follower reception epoch with each
 conditional interval, account for delayed bracket closure, keep unobserved records
 unavailable, and retain PHY/TWR/UART counters. The operator handles all hardware.
@@ -173,3 +173,140 @@ Native replay context recreation (including capacity eviction) is explicitly
 reported to the mobile wrapper and clears pending interpolation, independently
 of any physical receiver epoch. A regression exercises loss of the native context
 with a valid pending pair; its next reference cannot close the old candidate.
+
+
+## Carrier-frequency feasibility audit (checkpoint B follow-up)
+
+The user confirms no independent path-rate, external frequency reference,
+integrated/calibrated encoder odometry, verified speed/acceleration/minimum-distance
+limits, or measured oscillator/metrology bounds are presently available. Slow
+robot motion is an expectation, not a numerical bound. The existing conditional
+prototype consequently supplies no justified live metric result for this setup.
+
+### Hardware support and deployed API
+
+The bundled STM driver implements both APIs for DW3000:
+- `ull_readcarrierintegrator`: DRX_DIAG3 (0x060029), three bytes, signed21-bit;
+  CRC-good packet, captured before RX is reenabled.
+- `ull_readclockoffset`: CIA_DIAG_0 (0x0C0020), low13 bits signed; requires CIA
+  processing. The optional adapter enables CIA diagnostic logging and captures
+  COE only when the original RX status contains CIADONE, without waiting for it.
+  Missing CIADONE is marked unavailable; a present zero remains a real raw zero.
+
+Our existing channel5, 6.8Mbps, PRF64, preamble128/code9, IEEE SFD, STS-off PHY
+uses ordinary Ipatov acquisition. These diagnostics do not require an STS packet,
+a DW3000 transmitter, or a new on-air field. Thus the driver/PHY supports trying
+received DW1000 carrier measurements. Cross-generation packet reception is already
+proven; availability, sign, bias and accuracy of these frequency values in this
+particular hardware combination are NOT physically validated by that result.
+See the primary [Qorvo API guide](https://forum.qorvo.com/uploads/short-url/xD3TlXKvkujjdUaJWXv2b4E7GQN.pdf),
+sections dwt_readclockoffset/dwt_readcarrierintegrator, and deployed sources
+`epuck-stm32/ThirdParty/qorvo_dw3/driver/{deca_device_api.h,dw3000/dw3000_device.c}`.
+
+Bundled API algebra: CI count *3.719329833984375 gives Hz; the channel5 ppm
+multiplier is negative. COE count *2^-26 is dimensionless (despite a misleading
+ppm comment). COE guide/driver signs disagree, so the host labels raw values and
+API algebra separately and does not choose a hardware-verified sign. One CI count
+is about0.5731ppb at channel5; one COE count about14.9012ppb. At500ms, their respective
+first-order range-equivalent steps are about0.0859m and2.2336m. Quantization steps
+are neither calibrated errors nor a promise that averaging yields unbiased
+sub-step accuracy. Multipath, PLL behavior, temperature and transmitter-specific
+bias need investigation; no independent-noise or square-root averaging prior
+is inserted. ADS distance offsets do not calibrate this frequency channel.
+
+### Structural observability versus accuracy
+
+In the ideal affine clock/constant radial-motion model already defined above,
+let alpha be receiver/reference clock rate and positive v be recession. Arrival
+cadence gives `q = alpha/(1-v/c)`. The normalized received carrier ratio is
+`z = (1-v/c)/alpha = 1/q`, to the same propagation/oscillator model order. Therefore
+adding perfect CFO to perfect packet times leaves the exact radial-motion/clock
+counterexample intact. CFO can give a more instantaneous apparent rate rather
+than a multi-packet average, potentially improving sampling and tracking, but
+cannot independently remove Doppler. Different phase/group multipath errors are
+not a reliable new motion observable. Even zero-noise carrier readings do not
+establish an oscillator-only rate. More filtering improves precision only within
+an identifiable model; it does not fix this rank deficiency.
+
+For two fixed anchors with even KNOWN unit bearings n_A,n_B in2D, the first-order
+apparent rates give two equations `y_i = epsilon + dot(n_i,v)/c` for three unknowns
+(epsilon,v_x,v_y). Inter-ALR TWR supplies anchor clock/propagation information,
+not a third independent robot velocity equation. Unknown bearings only add
+unknowns. This is a general moving-model limitation, not a proof that every
+constrained trajectory/geometry is unobservable. A deliberately restricted motion
+model plus sufficient excitation may remove the ambiguity; it must be stated and
+tested, not silently represented by a filter prior. Even identified clock rate
+alone leaves range change during asynchronous ALR receptions to handle, and two
+anchors alone do not yield a unique unconstrained2D position.
+
+|Approach|Additional information needed|What it can justify|
+|---|---|---|
+|Bounded motion/clock interpolation|All seven explicit bounds above, valid over each bracket; physical metrology bound|Conditional range-difference intervals, not unique oscillator rate or an unconditional point|
+|Encoder assisted|Calibrated wheel radii/track, heading/relative frame, slip uncertainty; relative anchor geometry/pose or an observable joint mapping model|Path-rate compensation if those states/uncertainties are observable; encoder counts alone are insufficient|
+|Known1D motion direction|Known distinct bearing projections along that direction and valid1D constraint|Two apparent rates can solve scalar velocity plus clock; equal projections are degenerate|
+|Independent radial-rate measurement|Actual path-rate to the relevant anchor and verified carrier sign/scale/bias|Doppler correction can identify rate; still needs accuracy/error admission and cross-time motion treatment|
+|Stationary calibration then holdover|Explicitly verified stationary calibration interval, initial rate-error and oscillator slew bounds, finite expiry|Short conditional clock propagation; stationary calibration is not indefinitely valid while moving|
+|External frequency reference|Independent known frequency scale|Separates clock from motion; unavailable in the intended deployment|
+
+Infrastructure-free does not prohibit relative self-mapping/odometry: global
+translation/rotation can remain a gauge. Such joint estimation needs enough
+independent constraints, excitation and a stated motion/error model. Neither
+wheel integration nor such a joint estimator exists here. Wheel counts zero or
+a STOP command alone cannot prove physical stationarity if a robot is carried.
+`hybrid_static` remains the explicit stationary baseline, not moving holdover.
+
+For a proposed rate residual b_ppb and slot T seconds, first-order rate-to-range
+sensitivity is `c*T*b_ppb*1e-9`. Unknown radial-speed residual u contributes `T*u`
+metres through Doppler; stationary holdover has rate budget `b0 + slew*hold_time`.
+These are separate scenario terms, not a combined statistical confidence bound.
+Actual timestamp bias, reference-clock scale and relation uncertainty remain
+additional errors. Shorter slots reduce sensitivity, not structural ambiguity.
+
+### Implemented validated components and use
+
+STM adds an explicitly opt-in raw snapshot, default OFF. It does not estimate a
+clock, change validity/ranging math or make the RLR transmit. See
+[STM adapter instructions](https://github.com/Yacine-Derder/epuck-stm32/blob/main/docs/hybrid_uwb.md#optional-raw-frequency-diagnostic-checkpoint-b).
+The host standard-library tool supports:
+
+```sh
+python3 tools/uwb_frequency.py decode /absolute/path/to/serial.log --output frequency.jsonl
+python3 tools/uwb_frequency.py sensitivity --scenario /absolute/path/to/scenario.json
+```
+
+The decoder preserves native40-bit RX,32-bit observation time, source/type/sequence,
+raw CI/COE, CIADONE availability and raw status. It outputs labelled API algebra,
+not oscillator calibration; `metric_rate_valid=false`, `measurement=null` and
+`oscillator_rate_identified=false` on every sample. It never enters the point
+solver. Snapshot slots are different packet types/times, not a complete exchange;
+repeated commands may repeat snapshots. Do not treat repeated snapshots as new
+independent samples. Decode invalid fields as explicit error records.
+
+Sensitivity requires ALL six scenario fields: `radial_velocity_error_m_s`,
+`frequency_error_hz`, `calibration_error_ppb`, `clock_slew_ppb_s`, `hold_seconds`,
+`speed_m_s`. Units are explicit; finite nonnegative values only. No numerical
+hardware defaults or automatic admission thresholds exist. For illustration ONLY,
+not a measured prior, create JSON with0.2,1,2,1,10,0.2 respectively: a0.2m/s radial
+uncertainty corresponds to0.1m at500ms, and2ppb initial error plus1ppb/s for10s
+becomes12ppb. Output compares500/50/10ms and marks assumptions synthetic/user
+assumed. A scenario calculation is not a metric measurement or hardware bound.
+
+Deterministic tests cover exact clock/motion ambiguity with noiseless CFO plus
+cadence, two-bearing rank deficiency, API widths/sign algebra/zero versus missing,
+malformed snapshots, CLI persistence/explicit scenarios and slot/holdover/Doppler
+sensitivity. STM tests execute actual bundled register-decoding functions (all8192
+COE codes), pre-rearm capture and unchanged passive/age/safety behavior. These are
+software validations only. No live moving metric estimator is admitted.
+
+No more UWB-only logs are indispensable to establish this ambiguity. If the raw
+frequency path is evaluated physically later, the narrow missing measurement is
+per-packet raw CI/COE/status during a genuinely stationary receiver/ALR interval,
+with an independent relative-frequency or reference timing comparison to establish
+sign/scale/bias and repeated samples to characterize error. Stationary packet
+timestamp cadence is a possible timing comparison once physical stationarity is
+independently established; a sign check need not require a lab frequency standard.
+A controlled known
+radial motion can then assess Doppler. Such a validation fixture need not become
+deployment infrastructure. This would validate a sensor channel, not by itself
+supply the missing mobile observability. Further mobile admission needs one of
+the explicit constraints above and its justified uncertainty. C/D stay deferred.
