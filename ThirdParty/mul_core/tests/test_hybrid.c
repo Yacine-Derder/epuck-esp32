@@ -21,6 +21,25 @@ static void broadcasts(unsigned seq,bool stationary,bool broken) {
  assert(mulHybridReceive(&s,frame,74,mulTimestampMask(refRx+MUL_FOLLOWER_SLOT_DTU+1000),1,seq*1000+MUL_FOLLOWER_SLOT_MS,&out));
 }
 int main(void) {
+ /* Use the ALR's real publisher, not only hand-built v1 test relations.
+  * A currently valid v2 mapping must survive the exact radio codec. */
+ mulClock_t clock={.hasBaseline=true,.status=mulClockValid,.epoch=3,
+ .sequence=11,.referenceTx=MUL_TIMESTAMP_MASK-1000,.localRx=500000,
+ .observedMs=11000};
+ mulClockDelay_t delay={.epoch=3,.oneWayDtu=120,.measuredMs=10650,
+ .referenceSequence=10,.maxAgeMs=6000,.valid=true,
+ .measurementBoundDtu=UINT64_MAX,.motionBoundDtuPerMs=UINT64_MAX};
+ memcpy(delay.reference,ref,8);memcpy(delay.follower,fol,8);
+ mulTestPacket_t packet={.sequence=500,.txTimestamp=mulTimestampMask(clock.localRx+MUL_FOLLOWER_SLOT_DTU)};
+ memcpy(packet.source,fol,8);
+ mulRelation_t published=mulRelationPublish(&clock,&delay,packet.txTimestamp,
+ mulTimestampMask(packet.txTimestamp-10*MS),11000+MUL_FOLLOWER_SLOT_MS-10,true);
+ assert(published.available&&published.version==2);
+ uint8_t actual[74];mulRelationEncode(actual,&packet,&published);
+ mulTestPacket_t decoded;mulRelation_t relation;
+ assert(mulBroadcastDecode(actual,74,&decoded,&relation)&&relation.available);
+ uint64_t converted;assert(mulRelationInverse(&relation,decoded.txTimestamp,1,&converted));
+ assert(mulTimestampDifference(converted,clock.referenceTx)==(int64_t)MUL_FOLLOWER_SLOT_DTU+120);
  for(unsigned policy=0;policy<2;policy++) {
    mulHybridInit(&s,receiver,policy);
    for(unsigned i=0;i<=10;i++)broadcasts(i,policy,false);
@@ -57,5 +76,36 @@ int main(void) {
    if(stage==4)assert(out.twrRaw==100&&out.twrCorrected==UINT32_MAX);
  }
  assert(s.twrCompleted==1&&!s.twrActive);
+ assert(s.diagnostics.reason[mulHybridTimestamp]==1);
+ for(unsigned i=0;i<5;i++)assert(s.diagnostics.twrFrames[i]==(i==4?2u:1u));
+ /* A radio listener need not receive all directed packets. Missing/reordered
+  * components are observable failures, not malformed packets or a valid ToF. */
+ mulTwrPacket_t p={.type=mulTwrResult,.id=10,.tof=100,
+ .txTimestamp=mulTimestampMask(stamps[4]+40*MS+200)};
+ memcpy(p.stamps,stamps,sizeof(stamps));uint8_t frame[84];mulTwrEncode(frame,&p);
+ assert(mulHybridReceive(&s,frame,84,mulTimestampMask(refRx+730*MS),1,10730,&out)&&!out.twrComplete);
+ assert(s.diagnostics.lastReason==mulHybridMissingTwr);
+ mulHybridInit(&s,receiver,false);
+ assert(mulHybridReceive(&s,frame,84,refRx,1,10730,&out)&&!out.twrComplete);
+ assert(s.diagnostics.lastReason==mulHybridNoReference);
+ broadcasts(10,false,false);
+ assert(mulHybridReceive(&s,frame,84,mulTimestampMask(refRx+730*MS),16,10730,&out)&&!out.twrComplete);
+ assert(s.diagnostics.lastReason==mulHybridCaptureAge);
+ assert(mulHybridReceive(&s,frame,84,mulTimestampMask(refRx+730*MS),1,10730,&out)&&!out.twrComplete);
+ assert(s.diagnostics.lastReason==mulHybridMissingTwr);
+ p.type=mulTwrPoll;p.tof=0;memset(p.stamps,0,sizeof(p.stamps));p.stamps[0]=stamps[0];p.txTimestamp=stamps[0];mulTwrEncode(frame,&p);
+ assert(mulHybridReceive(&s,frame,84,mulTimestampMask(refRx+650*MS),1,10650,&out));
+ p.type=mulTwrFinal;memcpy(p.stamps,stamps,5*sizeof(uint64_t));p.txTimestamp=stamps[4];mulTwrEncode(frame,&p);
+ assert(mulHybridReceive(&s,frame,84,mulTimestampMask(refRx+690*MS),1,10690,&out)&&!out.twrComplete);
+ assert(s.diagnostics.lastReason==mulHybridMissingTwr);
+ p.type=mulTwrResponse;p.stamps[0]=mulTimestampMask(stamps[0]+1);p.stamps[3]=p.stamps[4]=0;p.txTimestamp=stamps[2];mulTwrEncode(frame,&p);
+ assert(mulHybridReceive(&s,frame,84,mulTimestampMask(refRx+670*MS),1,10670,&out));
+ assert(s.diagnostics.lastReason==mulHybridPrefix);
+ mulHybridExpire(&s,10900);assert(s.twrTimeouts==1&&!s.twrActive);
+ frame[13]=0x22;assert(!mulHybridReceive(&s,frame,84,refRx,1,10900,&out));assert(s.diagnostics.lastReason==mulHybridAddress);
+ assert(!mulHybridReceive(&s,frame,33,refRx,1,10900,&out));assert(s.diagnostics.lastReason==mulHybridShape);
+ broadcasts(11,false,true);assert(s.diagnostics.reason[mulHybridStaleRelation]);
+ assert(!strcmp(mulHybridReasonName(mulHybridMissingTwr),"missing_twr"));
+ assert(!strcmp(mulHybridReasonName(mulHybridReasonCount),"none"));
  puts("Hybrid shared receiver: exact relation/association, stationary opt-in, wrap/loss/domain guards and passive inter-ALR TWR verification passed");return 0;
 }

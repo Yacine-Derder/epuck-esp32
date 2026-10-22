@@ -1,6 +1,6 @@
 {
   "url": "https://github.com/Yacine-Derder/lps-node-firmware.git",
-  "revision": "12babcff77fbbc344027151801698eec287b20d5",
+  "revision": "3bbd324b3f5329e5cdc1e50cdce0b78b51054bce",
   "path": "portable/mul_core",
   "sha256": {
     "LICENSE": "c011ab8ee407a146225305a9038baf0f3bd80883507fd3d34da2823c5dcb4e5a",
@@ -18,8 +18,8 @@
     "mul_diag_config.h": "8dbc488fbe4ebe68067fe203c6028359a88128c80125e1a50107bc22c470a290",
     "mul_downlink.c": "f91a27bfb3455179e9b0f5691e9000b407e772d64966d422e9ccfdd70e2caa7a",
     "mul_downlink.h": "40a2a613f62b5e3511f8b01d22b08d852154610f7c5aa7b4d48258dd20d006ad",
-    "mul_hybrid.c": "c56faccf6305296bb12f7def93764b6c0bb7218d9fbcd46c8dcf3fd5ceb2aaba",
-    "mul_hybrid.h": "468a36bb6e6b882bc09ebd7cdc1669bc0616b10b6d3ab83c2656d9772ed6e73d",
+    "mul_hybrid.c": "5c0c8c870f218a321c190dfe60cb8159e2a04a99709252b093535fc65ac7b28f",
+    "mul_hybrid.h": "6a7286dcf6f4ee1165024fb40ed5be39e95fd49d2d6a94b596ea4c802e28143a",
     "mul_legacy_timing.h": "655de244e7483ae207b7753311665b43a859d586ffb20d230bd072853310393d",
     "mul_legacy_twr.c": "cc83a6562c18d8389d8449d5e29e53a72ec07ffc1a7d4b8712fcbbb18a82824a",
     "mul_legacy_twr.h": "73f8ba6f74671c59224d4e07fbbebe2173040b3bddc1eb6dafc5c2f16e7080c3",
@@ -39,7 +39,7 @@
     "tests/run.sh": "0bdab357679f43a760068326009b4072a5cfff90d05ae02a3514018c0001e298",
     "tests/test_ads.c": "38122cf643ace18f7e0411b65b746d76a59c9180f08dd992fd6fce69ddcef452",
     "tests/test_core.c": "d1005bca50450f80af8ae14c2cdcb02240e5b91f133839e50ad5206ac2226d8e",
-    "tests/test_hybrid.c": "41ee8229840bbe800e56330dcc4c26ca15893b8d456cca87dcc2c3683e3f5b3e",
+    "tests/test_hybrid.c": "ff801c63a53ee15614d53d31ad7979063dfd5fee6ec5dd3eb90f1254e202b27b",
     "tests/test_infrastructure.c": "0ea8def75b325569e346c1a7666830dc3562c6a416ff7b0cca13c0bb2f029fa9",
     "tests/vectors.json": "4a40d06a25fd1d460d1e37997051ec453b452c293587bd671a8a4635628a14b4",
     "verify.py": "7ef9859035f78cc05f443d43f9b531f3d1ae8869e745e3bb87fbdfefa138da2f"

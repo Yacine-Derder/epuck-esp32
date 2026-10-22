@@ -6,7 +6,25 @@
 /* Protocol-specific receiver, not a new network scheduler. The reference wire
  * roster is defined by mulAlrRoleForAddress; higher layers/solvers use full IDs.
  * One receiver context owns its inferred generations and never transmits. */
+typedef enum {
+ mulHybridShape, mulHybridAddress, mulHybridDecode, mulHybridNoReference,
+ mulHybridSequence, mulHybridWindow, mulHybridMissingTwr, mulHybridPrefix,
+ mulHybridTimestamp, mulHybridArithmetic, mulHybridCaptureAge,
+ mulHybridSourceOrder, mulHybridEpoch, mulHybridMissingRelation,
+ mulHybridStaleRelation, mulHybridMissingPropagation, mulHybridReasonCount
+} mulHybridReason_t;
 typedef struct {
+ uint32_t reason[mulHybridReasonCount],twrFrames[5],relations,availableRelations;
+ uint32_t lastId;
+ uint8_t lastType,lastStage;
+ mulHybridReason_t lastReason;
+ bool hasFailure;
+} mulHybridDiagnostics_t;
+const char *mulHybridReasonName(mulHybridReason_t reason);
+void mulHybridDiagnostic(mulHybridDiagnostics_t *d,mulHybridReason_t reason,
+ uint8_t type,uint32_t id,uint8_t stage);
+typedef struct {
+  mulHybridDiagnostics_t diagnostics;
   mulObservation_t observations[MUL_ALR_COUNT];
   mulAssociation_t association;mulClock_t rate;mulRelation_t relation;
   mulTwrPacket_t twr;
