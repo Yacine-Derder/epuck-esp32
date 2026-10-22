@@ -29,7 +29,9 @@ typedef struct {
 } mulTwrPacket_t;
 
 void mulTwrEncode(uint8_t frame[MUL_TWR_FRAME_LENGTH],const mulTwrPacket_t *packet);
+bool mulTwrEncodeNetwork(const mulNetwork_t *network,uint8_t frame[MUL_TWR_FRAME_LENGTH],const mulTwrPacket_t *packet);
 bool mulTwrDecode(const uint8_t *frame,size_t length,mulTwrPacket_t *packet);
+bool mulTwrDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame,size_t length,mulTwrPacket_t *packet);
 bool mulTwrCalculate(const uint64_t stamps[6],uint32_t *tof);
 bool mulTwrResults(const uint64_t stamps[6],const mulPower_t power[3],uint32_t *raw,uint32_t *corrected);
 #endif

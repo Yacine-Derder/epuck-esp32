@@ -43,6 +43,8 @@ void mulClockReset(mulClock_t *clock);
 // Caller must reset on reference loss/reacquisition; no epoch exists on wire.
 mulClockResult_t mulClockObserve(mulClock_t *clock, const mulTestPacket_t *packet,
                                 uint64_t localRx, uint32_t observedMs, bool valid);
+mulClockResult_t mulClockObserveNetwork(const mulNetwork_t *network,mulClock_t *clock, const mulTestPacket_t *packet,
+                                uint64_t localRx, uint32_t observedMs, bool valid);
 
 // Arrival-aligned mapping ONLY: full reference identity 84:00:00:00:00:00:cf:bc
 // to follower 85:00:00:00:00:00:cf:bc. Existing observation/slope fields are the
@@ -140,13 +142,19 @@ typedef struct {
 // Delay validity is separate from affine validity and correction availability.
 mulClockDelayStatus_t mulClockDelayStatus(const mulClock_t *clock,
                                          const mulClockDelay_t *delay, uint32_t nowMs);
+mulClockDelayStatus_t mulClockDelayStatusNetwork(const mulNetwork_t *network,const mulClock_t *clock,
+                                         const mulClockDelay_t *delay, uint32_t nowMs);
 // Separate, stateless APIs apply correction exactly once; existing arrival APIs
 // never inspect a delay. Success means AVAILABLE, not fully bounded/calibrated.
 // Outputs stay unchanged on failure. Caller must supply the correct coordinate
 // kind/epoch and serialize clock operations in the UWB task, as for the estimator.
 bool mulClockMapRefToFollowerSimultaneous(const mulClock_t *clock, uint64_t referenceTx,
   const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping);
+bool mulClockMapRefToFollowerSimultaneousNetwork(const mulNetwork_t *network,const mulClock_t *clock, uint64_t referenceTx,
+  const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping);
 bool mulClockMapFollowerSimultaneousToRef(const mulClock_t *clock, uint64_t localSimultaneous,
+  const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping);
+bool mulClockMapFollowerSimultaneousToRefNetwork(const mulNetwork_t *network,const mulClock_t *clock, uint64_t localSimultaneous,
   const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping);
 
 #endif // MUL_CLOCK_H

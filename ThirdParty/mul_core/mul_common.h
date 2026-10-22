@@ -49,6 +49,14 @@ typedef enum {
   mulAlrReference = 0,
   mulAlrFollower = 1,
 } mulAlrRole_t;
+/* Explicit ordered roster. NULL in Network APIs selects this legacy default;
+ * an invalid explicit roster fails closed and never falls back to defaults.
+ * Each protocol/receiver instance owns its roster; no mutable global routing. */
+typedef struct {uint8_t addresses[MUL_ALR_COUNT][MUL_ADDRESS_LENGTH];} mulNetwork_t;
+extern const mulNetwork_t mulDefaultNetwork;
+bool mulNetworkInit(mulNetwork_t *network,uint8_t reference,uint8_t follower);
+bool mulNetworkValid(const mulNetwork_t *network);
+mulAlrRole_t mulNetworkRole(const mulNetwork_t *network,const uint8_t address[8]);
 mulAlrRole_t mulAlrRoleForAddress(const uint8_t address[MUL_ADDRESS_LENGTH]);
 
 typedef enum {

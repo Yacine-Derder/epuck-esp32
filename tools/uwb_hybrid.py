@@ -14,14 +14,16 @@ import tempfile
 ROOT=Path(__file__).resolve().parents[1]
 STATUS={0:'NO_RELATION',1:'NO_RATE',2:'STALE_RATE',3:'INCONSISTENT',4:'AVAILABLE'}
 class Replay:
-    def __init__(self,slot=500):
+    def __init__(self,slot=500,reference=0x84,follower=0x85):
         if slot not in (500,50,10):raise ValueError('slot')
+        if any(type(n) is not int or not 0<=n<=254 for n in (reference,follower)) or reference==follower:raise ValueError('distinct reference/follower IDs 0..254 required')
+        self.reference=reference;self.follower=follower
         self.generations={};self.slot=slot;self.temp=tempfile.TemporaryDirectory(prefix='mul-hybrid-replay-');self.contexts={}
         core=ROOT/'ThirdParty/mul_core';library=Path(self.temp.name)/'hybrid.so'
         subprocess.run([sys.executable,str(core/'verify.py')],check=True,stdout=subprocess.PIPE)
         names=['mul_common','mul_clock','mul_relation','mul_observation','mul_downlink','mul_localization','mul_legacy_twr','mul_hybrid']
         subprocess.run(['cc','-std=c11','-O2','-shared','-fPIC',f'-DMUL_FOLLOWER_SLOT_MS={slot}','-DMUL_PROP_MAX_AGE_MS=6000','-I'+str(core),str(ROOT/'tools/native/hybrid_replay.c'),*[str(core/(name+'.c')) for name in names],'-o',str(library)],check=True)
-        self.lib=ctypes.CDLL(str(library));self.lib.hybrid_new.argtypes=[ctypes.c_uint,ctypes.c_uint];self.lib.hybrid_new.restype=ctypes.c_void_p
+        self.lib=ctypes.CDLL(str(library));self.lib.hybrid_new_network.argtypes=[ctypes.c_uint]*4;self.lib.hybrid_new_network.restype=ctypes.c_void_p
         self.lib.hybrid_free.argtypes=[ctypes.c_void_p]
         self.lib.hybrid_feed.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.c_uint,ctypes.c_uint64,ctypes.c_uint32,ctypes.c_uint32,ctypes.c_void_p,ctypes.c_uint]
     def close(self):
@@ -31,7 +33,7 @@ class Replay:
         if r.get('kind')!='telemetry' or r.get('type')!='hybrid_rx':return None
         try:
             node=r['node'];epoch=r['epoch'];radio=r['radio'];policy=r['rate_policy']
-            if type(node) is not int or not 0<=node<=255 or radio!=2 or policy not in ('unknown','stationary') or len(epoch)!=16 or not 0<int(epoch,16)<1<<64:raise ValueError('domain/policy')
+            if type(node) is not int or not 0<=node<=255 or node in (self.reference,self.follower) or radio!=2 or policy not in ('unknown','stationary') or len(epoch)!=16 or not 0<int(epoch,16)<1<<64:raise ValueError('domain/policy')
             if not r.get('flags',0)&8 or r.get('mode') not in (4,5) or r.get('role')!=2 or r.get('remote_radio')!=1 or (r.get('mode')==5)!=(policy=='stationary'):raise ValueError('timestamp validity/mode')
             if r['slot_ms']!=self.slot:raise ValueError('slot mismatch; replay each build profile separately')
             frame=bytes.fromhex(r['legacy_frame']);rx=int(r['rx'],16);age=r['capture_age_ms'];now=r['uptime_ms']
@@ -48,7 +50,7 @@ class Replay:
             # Bound receiver epochs, retaining no cross-boot association history.
             if len(self.contexts)>=128:
                 old_key=next(iter(self.contexts));self.lib.hybrid_free(self.contexts.pop(old_key));self.generations.pop(old_key,None)
-            context=self.lib.hybrid_new(node,policy=='stationary')
+            context=self.lib.hybrid_new_network(node,policy=='stationary',self.reference,self.follower)
             if not context:raise MemoryError('receiver context')
             self.contexts[key]=context
         self.generations[key]=generations
@@ -75,12 +77,15 @@ class Replay:
 
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('logs',nargs='+',type=Path);p.add_argument('--slot',type=int,choices=(500,50,10),default=500)
+    p.add_argument('--reference',type=lambda s:int(s,0),default=0x84);p.add_argument('--follower',type=lambda s:int(s,0),default=0x85)
     p.add_argument('--output',required=True,type=Path);p.add_argument('--anchors',type=Path);p.add_argument('--positions',type=Path)
     args=p.parse_args()
     if bool(args.anchors)!=bool(args.positions):p.error('--anchors and --positions must be supplied together')
     from uwb_localize import load_geometry,solve_2d
     geometry=load_geometry(args.anchors) if args.anchors else None
-    replay=Replay(args.slot);positions=args.positions.open('x') if args.positions else None
+    try:replay=Replay(args.slot,args.reference,args.follower)
+    except ValueError as error:p.error(str(error))
+    positions=args.positions.open('x') if args.positions else None
     try:
         with args.output.open('x') as out:
             for file in args.logs:

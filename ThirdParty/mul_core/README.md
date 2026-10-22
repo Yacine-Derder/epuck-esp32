@@ -6,7 +6,7 @@ folder. STM32 carries a deterministic committed vendor snapshot. No remote or
 package manager is added. Firmware builds require no sibling checkout/network.
 
 `mul_common.h/.c` preserve the legacy34-byte type1 codec, complete ALR identities,
-sequence state and signed modular40-bit helpers byte-for-byte. Their existing
+sequence state and signed modular40-bit wire helpers. Their existing
 void encoder/arithmetic pointer preconditions remain unchanged. LPS `inc/src`
 forwarding files preserve build/test discovery. Legacy clock/relation/TWR/observation/localization APIs now forward to shared
 radio-independent implementations here; their record semantics and DW1000
@@ -209,3 +209,22 @@ rate policy8 at140, slot16 at141, PHYerrors32 at143 and reserved zeros147..149.
 Common header0..39 retains local radio epoch and sequence. These records do not
 contain range-counter fields in their payload; ordinary summaries supply those.
 V1/v2 remain readable. A captured frame's TX remains in its source's own domain.
+
+
+## Explicit legacy TDMA roster (checkpoint C foundation)
+
+`mulNetwork_t` binds ordered full reference/follower identities. Network APIs
+accept an explicit roster; NULL retains the default0x84/0x85 network. A supplied
+invalid roster fails closed. IDs0..254 with canonical full suffix are supported;
+duplicate participants and broadcast255 are rejected. `mulHybridInitNetwork`
+copies the roster into each receiver; there is no mutable global network state.
+Network variants cover TWR endpoints, relation decoding/publication, clock delay,
+observation association and metric validation. Legacy APIs retain default behavior.
+Frame lengths, bytes, timing policies, rate admission and math are unchanged.
+The two-participant protocol remains; this adds configuration, not extra slots.
+
+Sanitized tests interleave independent swapped/custom rosters across500/50/10ms,
+check publication/clock/geometry and NO_RATE, reconstruct complete passive TWR,
+and reject wrong destinations, spoofed full IDs, duplicate/self/broadcast roles.
+Platform persistence and commands are subsequent integration work; these APIs
+alone do not make board roles runtime configurable or validate physical operation.

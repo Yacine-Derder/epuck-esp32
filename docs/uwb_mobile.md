@@ -322,3 +322,39 @@ three DTU of geometric truth; the corresponding ordinary-hybrid case remains
 NO_RATE with no metric measurement. These are distinct stationary fixtures, not a
 moving experiment. All60 host tests and actual C transport/replay builds pass.
 No production source, firmware build, core pin or hardware validity claim changes.
+
+
+## Checkpoint C: explicit network roster in replay
+
+Role and address configuration is now independent. The canonical shared core is
+pinned to LPS0cb81e3 in both STM32 and ESP32 snapshots; its Network APIs and each
+hybrid receiver context own an explicit ordered roster. Default legacy wrappers
+remain84/85, with unchanged34/74/84-byte packets, timing/math and NO_RATE policy.
+The DW1000 board integration is LPSd63a29d; STM32 schema3 stores reference/follower
+IDs independently of local node/ADS role and preserves old records/settings.
+
+The UWB3 wire schema stays unchanged, so historical captures remain readable.
+It contains raw full source/destination addresses, but does not carry an
+unambiguous complete configured roster. Record the two saved IDs with each
+experiment and provide them explicitly for custom networks; there is no silent
+role discovery or guessing from a source ID. Replay defaults are still84/85.
+Run each network/slot profile separately:
+
+```sh
+python3 tools/uwb_hybrid.py capture.jsonl --slot 500 --reference 0x42 --follower 0x23 --output observations.jsonl
+python3 tools/uwb_mobile.py capture.jsonl --slot 500 --reference 0x42 --follower 0x23 --bounds justified-bounds.json --output conditional.jsonl
+```
+
+Both CLIs accept decimal/0x IDs; invalid/duplicate/broadcast ALR IDs and an RLR
+identity equal to an ALR are rejected. Source-role reporting and reference TX
+conversion use that same roster, including native shared C relation validation.
+Conditional outputs now label their actual reference/follower IDs and remain
+`measurement=null`/not point-valid. No missing physical bounds are supplied by
+this configuration work. `hybrid_static` remains stationary-only.
+
+All62 host tests pass, including full-wire swapped/arbitrary rosters at500/50/10ms,
+separate live default/custom contexts, CLI roster options and conditional-mobile
+wrapper routing. The ESP32 firmware builds successfully with the new verified
+vendor snapshot; its transport implementation, commands, UWB1/2/3 bytes and UART
+policy are unchanged. Hardware custom-roster operation and moving metric accuracy
+are unvalidated. STM PLAN.md tracks checkpoint C and D's remaining interface work.

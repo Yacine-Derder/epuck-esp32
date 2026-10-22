@@ -15,7 +15,7 @@ void mulPropagationMotionBound(uint32_t ageMs,uint32_t *millimetres,uint32_t *dt
 #endif
 }
 
-void mulLocalizationObserve(mulLocalization_t *o,mulPair_t *pair,
+void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t *o,mulPair_t *pair,
   const mulRelation_t *r,const mulClock_t *rate,uint32_t now,uint32_t captureAge,bool stationary)
 {
   memset(o,0,sizeof(*o));
@@ -32,7 +32,7 @@ void mulLocalizationObserve(mulLocalization_t *o,mulPair_t *pair,
     (pair->follower.power.status==mulPowerApplied ? 2 : 0) | (r->powerCorrectedTwr ? 4 : 0);
   o->associationValid=pair->reference.valid && pair->follower.valid &&
     pair->reference.generation!=0 && pair->follower.generation!=0 &&
-    mulAlrRoleForAddress(o->reference)==mulAlrReference && mulAlrRoleForAddress(o->follower)==mulAlrFollower &&
+    mulNetworkRole(network,o->reference)==mulAlrReference && mulNetworkRole(network,o->follower)==mulAlrFollower &&
     memcmp(pair->reference.receiverClock,pair->follower.receiverClock,8)==0;
   o->delayState=r->delayState;
   if (r->version!=2 && r->available) o->delayState=mulPropagationFresh; // v1 cannot carry numeric estimate/state.
@@ -56,7 +56,7 @@ void mulLocalizationObserve(mulLocalization_t *o,mulPair_t *pair,
       o->rateState=mulRateStationary; o->ratePpb=rate->skewPpb;
     }
   }
-  mulDownlink_t d=mulDownlinkCompute(r,pair,rate,now,captureAge,stationary);
+  mulDownlink_t d=mulDownlinkComputeNetwork(network,r,pair,rate,now,captureAge,stationary);
   o->status=o->associationValid ? d.status : mulDownlinkInconsistent;
   o->clockValid=o->associationValid && pair->clockRelationAvailable;
   if (o->status==mulDownlinkAvailable) {
@@ -65,3 +65,8 @@ void mulLocalizationObserve(mulLocalization_t *o,mulPair_t *pair,
   }
 }
 
+
+/* Legacy API wrappers retain the default network. */
+void mulLocalizationObserve(mulLocalization_t *observation,mulPair_t *pair,
+  const mulRelation_t *relation,const mulClock_t *rate,uint32_t nowMs,
+  uint32_t captureAgeMs,bool stationaryOptIn) { mulLocalizationObserveNetwork(NULL,observation,pair,relation,rate,nowMs,captureAgeMs,stationaryOptIn); }

@@ -53,7 +53,7 @@ bool mulRelationInverse(const mulRelation_t *r,uint64_t tx,uint32_t age,uint64_t
   *ref=converted; return true;
 }
 
-bool mulBroadcastDecode(const uint8_t *frame,size_t length,mulTestPacket_t *p,mulRelation_t *r)
+bool mulBroadcastDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame,size_t length,mulTestPacket_t *p,mulRelation_t *r)
 {
   if (!frame || !p || !r) return false;
   mulTestPacket_t packet; mulRelation_t relation={0};
@@ -64,7 +64,7 @@ bool mulBroadcastDecode(const uint8_t *frame,size_t length,mulTestPacket_t *p,mu
         (frame[34]!=1 && frame[34]!=2) || (frame[35]&2)==0 ||
         (frame[35] & (frame[34]==1 ? ~7 : ~63))!=0) return false;
     uint8_t base[MUL_TEST_FRAME_LENGTH]; memcpy(base,frame,sizeof(base)); base[24]=MUL_PACKET_TEST_BROADCAST;
-    if (!mulDecodeTestPacket(base,sizeof(base),&packet) || mulAlrRoleForAddress(packet.source)!=mulAlrFollower) return false;
+    if (!mulDecodeTestPacket(base,sizeof(base),&packet) || mulNetworkRole(network,packet.source)!=mulAlrFollower) return false;
     relation.version=frame[34];
     relation.epoch=get(frame+36,8); relation.referenceSequence=get(frame+44,4);
     relation.twrSequence=get(frame+48,4); relation.referenceOrigin=get(frame+52,5);
@@ -115,7 +115,7 @@ static void unavailableModel(mulRelation_t *r)
   }
 }
 
-mulRelation_t mulRelationPublish(const mulClock_t *clock,const mulClockDelay_t *delay,
+mulRelation_t mulRelationPublishNetwork(const mulNetwork_t *network,const mulClock_t *clock,const mulClockDelay_t *delay,
   uint64_t tx,uint64_t hardwareNow,uint32_t nowMs,bool powerCorrectedTwr)
 {
   mulRelation_t result={.epoch=clock->epoch,.referenceSequence=clock->sequence,
@@ -134,8 +134,8 @@ mulRelation_t mulRelationPublish(const mulClock_t *clock,const mulClockDelay_t *
   }
   mulClockCorrectedMapping_t origin,inverse;
   if (!delay || delay->maxAgeMs!=MUL_PROP_MAX_AGE_MS ||
-      !mulClockMapRefToFollowerSimultaneous(clock,clock->referenceTx,delay,atTx,&origin) ||
-      !mulClockMapFollowerSimultaneousToRef(clock,tx,delay,atTx,&inverse)) {
+      !mulClockMapRefToFollowerSimultaneousNetwork(network,clock,clock->referenceTx,delay,atTx,&origin) ||
+      !mulClockMapFollowerSimultaneousToRefNetwork(network,clock,tx,delay,atTx,&inverse)) {
     unavailableModel(&result);
     return result;
   }
@@ -153,3 +153,9 @@ mulRelation_t mulRelationPublish(const mulClock_t *clock,const mulClockDelay_t *
   }
   return result;
 }
+
+/* Legacy API wrappers retain the default network. */
+bool mulBroadcastDecode(const uint8_t *frame,size_t length,
+  mulTestPacket_t *packet,mulRelation_t *relation) { return mulBroadcastDecodeNetwork(NULL,frame,length,packet,relation); }
+mulRelation_t mulRelationPublish(const mulClock_t *clock,const mulClockDelay_t *delay,
+  uint64_t followerTx,uint64_t hardwareNow,uint32_t nowMs,bool powerCorrectedTwr) { return mulRelationPublishNetwork(NULL,clock,delay,followerTx,hardwareNow,nowMs,powerCorrectedTwr); }

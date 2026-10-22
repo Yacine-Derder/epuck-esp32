@@ -12,10 +12,17 @@ void mulHybridDiagnostic(mulHybridDiagnostics_t *d,mulHybridReason_t reason,
  if((unsigned)reason>=mulHybridReasonCount)return;
  d->reason[reason]++;d->lastReason=reason;d->lastType=type;d->lastId=id;d->lastStage=stage;d->hasFailure=true;
 }
-void mulHybridInit(mulHybrid_t *s,const uint8_t receiver[8],bool stationary) {
- memset(s,0,sizeof(*s));s->stationary=stationary;
- mulObservationInit(s->observations,receiver);mulClockReset(&s->rate);
+bool mulHybridInitNetwork(mulHybrid_t *s,const mulNetwork_t *network,const uint8_t receiver[8],bool stationary) {
+ if(!s)return false;
+ memset(s,0,sizeof(*s));
+ if(!receiver||!mulNetworkValid(network)||mulNetworkRole(network,receiver)!=mulAlrUnsupported)return false;
+ s->network=network?*network:mulDefaultNetwork;s->stationary=stationary;
+ mulObservationInit(s->observations,receiver);mulClockReset(&s->rate);return true;
 }
+void mulHybridInit(mulHybrid_t *s,const uint8_t receiver[8],bool stationary) {
+ (void)mulHybridInitNetwork(s,NULL,receiver,stationary);
+}
+
 void mulHybridExpire(mulHybrid_t *s,uint32_t now) {
  mulAssociationExpire(&s->association,s->observations,now);
  if(s->rate.hasBaseline&&(uint32_t)(now-s->rate.observedMs)>=MUL_SOURCE_TIMEOUT_MS)mulClockReset(&s->rate);
@@ -59,11 +66,12 @@ static bool twrObserve(mulHybrid_t *s,const mulTwrPacket_t *p,uint64_t rx,uint32
 rejected:s->twrRejected++;mulHybridDiagnostic(&s->diagnostics,reason,p->type,p->id,s->twrActive?s->twr.type:0);return false;
 }
 bool mulHybridReceive(mulHybrid_t *s,const uint8_t *f,size_t n,uint64_t rx,uint32_t age,uint32_t now,mulHybridOutput_t *out) {
- if(!s||!f||!out||rx>MUL_TIMESTAMP_MASK)return false;
+ if(!s||!f||!out||rx>MUL_TIMESTAMP_MASK||!mulNetworkValid(&s->network))return false;
+ const mulNetwork_t *network=&s->network;
  mulHybridExpire(s,now);memset(out,0,sizeof(*out));
  if(n==MUL_TWR_FRAME_LENGTH) {
-   mulTwrPacket_t p;if(!mulTwrDecode(f,n,&p)){
-     mulAlrRole_t src=mulAlrRoleForAddress(f+13),dst=mulAlrRoleForAddress(f+5);
+   mulTwrPacket_t p;if(!mulTwrDecodeNetwork(network,f,n,&p)){
+     mulAlrRole_t src=mulNetworkRole(network,f+13),dst=mulNetworkRole(network,f+5);
      bool known=f[24]>=mulTwrPoll&&f[24]<=mulTwrResult;
      mulAlrRole_t expected=f[24]==mulTwrResponse||f[24]==mulTwrReport?mulAlrFollower:mulAlrReference;
      mulHybridDiagnostic(&s->diagnostics,src==mulAlrUnsupported||dst==mulAlrUnsupported||src==dst||(known&&src!=expected)?mulHybridAddress:mulHybridDecode,f[24],0,0);
@@ -78,14 +86,14 @@ bool mulHybridReceive(mulHybrid_t *s,const uint8_t *f,size_t n,uint64_t rx,uint3
    if(n!=MUL_TEST_FRAME_LENGTH&&n!=MUL_RELATION_FRAME_LENGTH) {
      s->rejected++;mulHybridDiagnostic(&s->diagnostics,mulHybridShape,0,0,0);return false;
    }
-   if(!mulBroadcastDecode(f,n,&p,&r)||mulAlrRoleForAddress(p.source)==mulAlrUnsupported){s->rejected++;
-     mulHybridDiagnostic(&s->diagnostics,mulAlrRoleForAddress(f+13)==mulAlrUnsupported?mulHybridAddress:mulHybridDecode,f[24],0,0);return false;}
+   if(!mulBroadcastDecodeNetwork(network,f,n,&p,&r)||mulNetworkRole(network,p.source)==mulAlrUnsupported){s->rejected++;
+     mulHybridDiagnostic(&s->diagnostics,mulNetworkRole(network,f+13)==mulAlrUnsupported?mulHybridAddress:mulHybridDecode,f[24],0,0);return false;}
    if(n==MUL_RELATION_FRAME_LENGTH){s->diagnostics.relations++;if(r.available)s->diagnostics.availableRelations++;}
    s->received++;out->packet=p;out->relation=r;out->broadcast=true;
-   mulAlrRole_t role=mulAlrRoleForAddress(p.source);
+   mulAlrRole_t role=mulNetworkRole(network,p.source);
    mulPowerRx_t capture={.raw=rx,.corrected=rx,.power={.powerCentiDbm=INT16_MIN,.status=mulPowerUnsupported}};
    mulPair_t pair;bool hadFollower=s->observations[1].source.hasSequence;
-   bool associated=mulAssociate(&s->association,s->observations,&p,&capture,now,&out->order,&pair);
+   bool associated=mulAssociateNetwork(network,&s->association,s->observations,&p,&capture,now,&out->order,&pair);
    if(out->order==mulSequenceDuplicate||out->order==mulSequenceOld)
      mulHybridDiagnostic(&s->diagnostics,mulHybridSourceOrder,f[24],p.sequence,0);
    mulObservation_t *o=&s->observations[role];
@@ -99,11 +107,11 @@ bool mulHybridReceive(mulHybrid_t *s,const uint8_t *f,size_t n,uint64_t rx,uint3
    }
    if(role==mulAlrReference&&out->order!=mulSequenceDuplicate&&out->order!=mulSequenceOld) {
      if(out->order==mulSequenceFirst)mulClockReset(&s->rate);
-     mulClockObserve(&s->rate,&p,rx,now,true);
+     mulClockObserveNetwork(network,&s->rate,&p,rx,now,true);
    }
    if(associated) {
      pair.follower.remoteEpochKnown=o->remoteEpochKnown;
-     mulLocalizationObserve(&out->observation,&pair,&r,&s->rate,now,age,s->stationary);
+     mulLocalizationObserveNetwork(network,&out->observation,&pair,&r,&s->rate,now,age,s->stationary);
      if(!r.available)mulHybridDiagnostic(&s->diagnostics,mulHybridMissingRelation,f[24],p.sequence,0);
      else if(!out->observation.clockValid)mulHybridDiagnostic(&s->diagnostics,mulHybridStaleRelation,f[24],p.sequence,0);
      if(r.delayState==mulPropagationNone||r.delayState==mulPropagationExpired||r.delayState==mulPropagationInvalidated)

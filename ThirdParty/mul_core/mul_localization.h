@@ -35,5 +35,8 @@ void mulPropagationMotionBound(uint32_t ageMs,uint32_t *millimetres,uint32_t *dt
 void mulLocalizationObserve(mulLocalization_t *observation,mulPair_t *pair,
   const mulRelation_t *relation,const mulClock_t *rate,uint32_t nowMs,
   uint32_t captureAgeMs,bool stationaryOptIn);
+void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t *observation,mulPair_t *pair,
+  const mulRelation_t *relation,const mulClock_t *rate,uint32_t nowMs,
+  uint32_t captureAgeMs,bool stationaryOptIn);
 
 #endif

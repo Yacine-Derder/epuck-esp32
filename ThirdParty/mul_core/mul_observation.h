@@ -26,6 +26,8 @@ bool mulObservationFresh(const mulObservation_t *observation, uint32_t nowMs);
 void mulObservationExpire(mulObservation_t observations[2], uint32_t nowMs);
 mulSequenceResult_t mulObservationRecord(mulObservation_t observations[2],
   const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs);
+mulSequenceResult_t mulObservationRecordNetwork(const mulNetwork_t *network,mulObservation_t observations[2],
+  const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs);
 
 // A single candidate reference, consumed once. No unbounded packet history.
 typedef struct {
@@ -51,6 +53,9 @@ void mulAssociationExpire(mulAssociation_t *association,
 // Records/tracks first, then associates only consecutive, cadence-checked sources.
 // sequenceResult preserves the existing source diagnostics. pair only valid on true.
 bool mulAssociate(mulAssociation_t *association, mulObservation_t observations[2],
+  const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs,
+  mulSequenceResult_t *sequenceResult, mulPair_t *pair);
+bool mulAssociateNetwork(const mulNetwork_t *network,mulAssociation_t *association, mulObservation_t observations[2],
   const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs,
   mulSequenceResult_t *sequenceResult, mulPair_t *pair);
 #endif

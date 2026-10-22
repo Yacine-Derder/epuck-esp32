@@ -17,11 +17,13 @@ int main(int argc,char **argv) {
  int32_t followerPpb=argc>5?(int32_t)strtol(argv[5],NULL,10):-5000;
  uint32_t anchorPath=argc>6?(uint32_t)strtoul(argv[6],NULL,10):4263;
  uint64_t receiverOrigin=argc>7?strtoull(argv[7],NULL,10):900000;
+ uint8_t referenceNode=argc>8?(uint8_t)strtoul(argv[8],NULL,10):0x84;
+ uint8_t followerNode=argc>9?(uint8_t)strtoul(argv[9],NULL,10):0x85;
  for(unsigned i=0;i<11;i++) {
   uint8_t frame[84];uint64_t ref=mulTimestampMask(MUL_TIMESTAMP_MASK-2*1000*MS+i*1000*MS);
   uint64_t origin=mulTimestampMask(MUL_TIMESTAMP_MASK-100000+scale(i*1000*MS,followerPpb));
   for(unsigned follower=0;follower<2;follower++) {
-   mulTestPacket_t packet={.source={follower?0x85:0x84,0,0,0,0,0,0xcf,0xbc},.sequence=i+(follower?500:0),
+   mulTestPacket_t packet={.source={follower?followerNode:referenceNode,0,0,0,0,0,0xcf,0xbc},.sequence=i+(follower?500:0),
     .txTimestamp=follower?mulTimestampMask(origin+scale(MUL_FOLLOWER_SLOT_DTU,followerPpb)):ref};
    unsigned n=34;
    if(follower) {

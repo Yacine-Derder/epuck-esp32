@@ -17,4 +17,7 @@ for slot in 500 50 10; do
 cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie -DMUL_FOLLOWER_SLOT_MS=$slot -DMUL_PROP_MAX_AGE_MS=6000 \
  -I. tests/test_hybrid.c mul_hybrid.c mul_legacy_twr.c mul_clock.c mul_relation.c mul_observation.c mul_downlink.c mul_localization.c mul_common.c -lm -o "$work/hybrid"
 "$work/hybrid"
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie -DMUL_FOLLOWER_SLOT_MS=$slot -DMUL_PROP_MAX_AGE_MS=6000 \
+ -I. tests/test_network.c mul_hybrid.c mul_legacy_twr.c mul_clock.c mul_relation.c mul_observation.c mul_downlink.c mul_localization.c mul_common.c -lm -o "$work/network"
+"$work/network"
 done

@@ -1,14 +1,14 @@
 /* SPDX-License-Identifier: LGPL-3.0-or-later */
 #include "mul_downlink.h"
 #include <string.h>
-bool mulDownlinkRelation(const mulRelation_t *r,mulPair_t *pair,
+bool mulDownlinkRelationNetwork(const mulNetwork_t *network,const mulRelation_t *r,mulPair_t *pair,
   uint32_t nowMs,uint32_t captureAgeMs,int64_t *txSeparation)
 {
   pair->clockRelationAvailable=false; pair->geometricTdoaAvailable=false;
   if (!r->available || captureAgeMs>15 ||
       !mulObservationFresh(&pair->reference,nowMs) || !mulObservationFresh(&pair->follower,nowMs) ||
-      mulAlrRoleForAddress(pair->reference.sourceClock)!=mulAlrReference ||
-      mulAlrRoleForAddress(pair->follower.sourceClock)!=mulAlrFollower ||
+      mulNetworkRole(network,pair->reference.sourceClock)!=mulAlrReference ||
+      mulNetworkRole(network,pair->follower.sourceClock)!=mulAlrFollower ||
       memcmp(pair->reference.receiverClock,pair->follower.receiverClock,8) ||
       r->referenceSequence!=pair->reference.source.sequence ||
       r->referenceOrigin!=pair->reference.source.txTimestamp) return false;
@@ -30,11 +30,11 @@ static int64_t intervalToReference(int64_t d,int32_t ppb)
   return d-correction;
 }
 
-mulDownlink_t mulDownlinkCompute(const mulRelation_t *r,mulPair_t *pair,
+mulDownlink_t mulDownlinkComputeNetwork(const mulNetwork_t *network,const mulRelation_t *r,mulPair_t *pair,
   const mulClock_t *rate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn)
 {
   mulDownlink_t result={.physicalBoundDtu=UINT64_MAX,.status=mulDownlinkNoRelation};
-  if (!mulDownlinkRelation(r,pair,nowMs,captureAgeMs,&result.txSeparationRef)) return result;
+  if (!mulDownlinkRelationNetwork(network,r,pair,nowMs,captureAgeMs,&result.txSeparationRef)) return result;
   result.relationAgeMs=r->originAgeMs+(nowMs-pair->follower.acceptedMs)+captureAgeMs;
   result.status=mulDownlinkNoRate;
   if (!stationaryOptIn || !rate || !rate->hasBaseline || rate->status!=mulClockValid) return result;
@@ -66,3 +66,9 @@ mulDownlink_t mulDownlinkCompute(const mulRelation_t *r,mulPair_t *pair,
   result.status=mulDownlinkAvailable; pair->geometricTdoaAvailable=true;
   return result;
 }
+
+/* Legacy API wrappers retain the default network. */
+bool mulDownlinkRelation(const mulRelation_t *relation,mulPair_t *pair,
+  uint32_t nowMs,uint32_t captureAgeMs,int64_t *txSeparationReferenceDtu) { return mulDownlinkRelationNetwork(NULL,relation,pair,nowMs,captureAgeMs,txSeparationReferenceDtu); }
+mulDownlink_t mulDownlinkCompute(const mulRelation_t *relation,mulPair_t *pair,
+  const mulClock_t *rlrRate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn) { return mulDownlinkComputeNetwork(NULL,relation,pair,rlrRate,nowMs,captureAgeMs,stationaryOptIn); }

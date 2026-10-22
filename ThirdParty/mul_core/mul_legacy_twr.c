@@ -1,17 +1,17 @@
 /* SPDX-License-Identifier: LGPL-3.0-or-later */
 #include "mul_legacy_twr.h"
 #include <string.h>
-static const uint8_t addresses[2][8] = {
-  {0x84,0,0,0,0,0,0xcf,0xbc}, {0x85,0,0,0,0,0,0xcf,0xbc},
-};
 
 static mulAlrRole_t sender(mulTwrType_t type)
 {
   return type == mulTwrResponse || type == mulTwrReport ? mulAlrFollower : mulAlrReference;
 }
 
-void mulTwrEncode(uint8_t frame[MUL_TWR_FRAME_LENGTH], const mulTwrPacket_t *packet)
+bool mulTwrEncodeNetwork(const mulNetwork_t *network,uint8_t frame[MUL_TWR_FRAME_LENGTH], const mulTwrPacket_t *packet)
 {
+  if(!frame||!packet||!mulNetworkValid(network)||packet->type<mulTwrPoll||packet->type>mulTwrResult)return false;
+  if(!network)network=&mulDefaultNetwork;
+  const uint8_t (*addresses)[8]=network->addresses;
   mulAlrRole_t role = sender(packet->type);
   memset(frame, 0, MUL_TWR_FRAME_LENGTH);
   mulEncodeTestPacket(frame, addresses[role], packet->id, packet->stamps[0]);
@@ -31,9 +31,10 @@ void mulTwrEncode(uint8_t frame[MUL_TWR_FRAME_LENGTH], const mulTwrPacket_t *pac
   for (unsigned int i = 0; i < 4; i++) {
     frame[64+i] = packet->tof >> (8*i);
   }
+  return true;
 }
 
-bool mulTwrDecode(const uint8_t *frame, size_t length, mulTwrPacket_t *packet)
+bool mulTwrDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame, size_t length, mulTwrPacket_t *packet)
 {
   if (frame == NULL || packet == NULL || length != MUL_TWR_FRAME_LENGTH ||
       frame[68] != 1 || frame[0] != 0x41 || frame[1] != 0xdc || frame[3] != 0xcf || frame[4] != 0xbc ||
@@ -41,6 +42,9 @@ bool mulTwrDecode(const uint8_t *frame, size_t length, mulTwrPacket_t *packet)
       frame[2] != frame[25]) {
     return false;
   }
+  if(!mulNetworkValid(network))return false;
+  if(!network)network=&mulDefaultNetwork;
+  const uint8_t (*addresses)[8]=network->addresses;
   mulAlrRole_t role = sender(frame[24]);
   if (memcmp(frame+13, addresses[role], 8) || memcmp(frame+5, addresses[1-role], 8)) {
     return false;
@@ -128,3 +132,7 @@ bool mulTwrResults(const uint64_t stamps[6], const mulPower_t power[3],
   return true;
 }
 
+
+/* Legacy API wrappers retain the default network. */
+void mulTwrEncode(uint8_t frame[MUL_TWR_FRAME_LENGTH],const mulTwrPacket_t *packet) { mulTwrEncodeNetwork(NULL,frame,packet); }
+bool mulTwrDecode(const uint8_t *frame,size_t length,mulTwrPacket_t *packet) { return mulTwrDecodeNetwork(NULL,frame,length,packet); }

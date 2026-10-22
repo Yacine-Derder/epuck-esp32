@@ -93,9 +93,9 @@ def delta(later,earlier):
 
 class MobileReplay:
     """Bounded per-receiver state; C Replay owns all on-air validation/mapping."""
-    def __init__(self,bounds,slot=500):
+    def __init__(self,bounds,slot=500,reference=0x84,follower=0x85):
         from uwb_hybrid import Replay
-        self.bounds=assumptions(bounds);self.shared=Replay(slot);self.states={}
+        self.bounds=assumptions(bounds);self.shared=Replay(slot,reference,follower);self.states={}
     def close(self):self.shared.close();self.states.clear()
     def feed(self,record):
         row=self.shared.feed(record)
@@ -128,7 +128,7 @@ class MobileReplay:
                 else:
                     result=interpolate(delta(tx,old['tx']),delta(rx,old['rx']),
                                        pending['tx_separation_ref_dtu'],pending['rx_separation_local_dtu'],self.bounds)
-                result.update(receiver_domain=domain,reference_sequence=old['seq'],
+                result.update(receiver_domain=domain,reference=pending['reference'],follower=pending['follower'],reference_sequence=old['seq'],
                               next_reference_sequence=seq,follower_sequence=pending['follower_sequence'],
                               reference_generation=generation,follower_generation=pending['follower_generation'],
                               follower_acquisition_epoch=pending['follower_acquisition_epoch'],
@@ -144,13 +144,15 @@ class MobileReplay:
 
 def main():
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument('logs',nargs='+',type=Path);p.add_argument('--bounds',required=True,type=Path)
+    p.add_argument('logs',nargs='+',type=Path);p.add_argument('--reference',type=lambda s:int(s,0),default=0x84);p.add_argument('--follower',type=lambda s:int(s,0),default=0x85)
+    p.add_argument('--bounds',required=True,type=Path)
     p.add_argument('--slot',type=int,choices=(500,50,10),default=500)
     p.add_argument('--output',required=True,type=Path)
     args=p.parse_args()
     try:bounds=assumptions(json.loads(args.bounds.read_text()))
     except (ValueError,OSError) as error:p.error(str(error))
-    replay=MobileReplay(bounds,args.slot)
+    try:replay=MobileReplay(bounds,args.slot,args.reference,args.follower)
+    except ValueError as error:p.error(str(error))
     try:
         with args.output.open('x') as output:
             for path in args.logs:

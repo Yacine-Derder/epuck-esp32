@@ -7,6 +7,8 @@
 // rounded outward. No cached relation may be substituted for unavailable metadata.
 bool mulDownlinkRelation(const mulRelation_t *relation,mulPair_t *pair,
   uint32_t nowMs,uint32_t captureAgeMs,int64_t *txSeparationReferenceDtu);
+bool mulDownlinkRelationNetwork(const mulNetwork_t *network,const mulRelation_t *relation,mulPair_t *pair,
+  uint32_t nowMs,uint32_t captureAgeMs,int64_t *txSeparationReferenceDtu);
 
 // Explicit opt-in for stationary bench experiments ONLY. Arrival cadence cannot
 // distinguish constant radial motion from clock skew. No mobile-mode default.
@@ -37,5 +39,7 @@ typedef struct {
 // The experimental estimate is conditional on constant propagation/RX bias.
 // Without that explicit assumption, no physically justified RLR rate is present.
 mulDownlink_t mulDownlinkCompute(const mulRelation_t *relation,mulPair_t *pair,
+  const mulClock_t *rlrRate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn);
+mulDownlink_t mulDownlinkComputeNetwork(const mulNetwork_t *network,const mulRelation_t *relation,mulPair_t *pair,
   const mulClock_t *rlrRate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn);
 #endif

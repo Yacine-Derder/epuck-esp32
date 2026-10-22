@@ -65,6 +65,37 @@ class Hybrid(unittest.TestCase):
          self.assertTrue(row['stationarity_assumed'])
          if x!=2.5:self.assertGreater(row['tdoa_dtu']*(path_b-path_a),0)
    finally:replay.close()
+ def test_custom_and_swapped_rosters_survive_full_wire_replay_without_global_routing(self):
+  for slot in (500,50,10):
+   for reference,follower in ((0x85,0x84),(0x42,0x23)):
+    for policy in (False,True):
+     args=[str(self.producers[slot]),str(int(policy)),'4000','4477','10000','-5000','4263',str((1<<40)-300000),str(reference),str(follower)]
+     records=[dict(self.collect.decode(line),kind='telemetry') for line in subprocess.check_output(args,text=True).splitlines()]
+     custom=self.host.Replay(slot,reference,follower);default=self.host.Replay(slot)
+     try:
+      rows=[custom.feed(record) for record in records]
+      values=[row for row in rows if row.get('associated') and row['clock_valid']]
+      self.assertEqual(len(values),6)
+      for row in values:
+       self.assertEqual((row['reference'],row['follower']),(reference,follower))
+       self.assertEqual(row['status'],'AVAILABLE' if policy else 'NO_RATE')
+       self.assertIsNotNone(row['tx_separation_ref_dtu'])
+       if policy:self.assertLessEqual(abs(row['tdoa_dtu']-477),2)
+       else:self.assertIsNone(row['measurement'])
+      # Default and custom contexts are live together; no mutable global roster.
+      self.assertFalse(any(default.feed(record).get('clock_valid') for record in records))
+      self.assertEqual(custom.feed(dict(records[0],node=reference))['kind'],'invalid')
+     finally:custom.close();default.close()
+  with tempfile.TemporaryDirectory() as directory:
+   capture=Path(directory)/'capture.jsonl';output=Path(directory)/'observations.jsonl'
+   capture.write_text(''.join(json.dumps(record)+'\n' for record in records))
+   subprocess.run([sys.executable,str(ROOT/'tools/uwb_hybrid.py'),str(capture),'--slot','10','--reference','0x42','--follower','0x23','--output',str(output)],check=True)
+   self.assertEqual(sum(json.loads(line).get('status')=='AVAILABLE' for line in output.read_text().splitlines()),6)
+   previous=output.read_bytes()
+   bad=subprocess.run([sys.executable,str(ROOT/'tools/uwb_hybrid.py'),str(capture),'--reference','255','--output',str(output)],capture_output=True,text=True)
+   self.assertEqual(bad.returncode,2);self.assertNotIn('Traceback',bad.stderr);self.assertEqual(previous,output.read_bytes())
+  for pair in ((1,1),(-1,2),(1,255),(True,2)):
+   with self.assertRaises(ValueError):self.host.Replay(reference=pair[0],follower=pair[1])
  def test_unknown_rate_loss_epochs_and_invalid_domain(self):
   replay=self.host.Replay()
   try:

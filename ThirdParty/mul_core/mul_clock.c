@@ -31,10 +31,10 @@ static void baseline(mulClock_t *clock, const mulTestPacket_t *packet,
   }
 }
 
-mulClockResult_t mulClockObserve(mulClock_t *clock, const mulTestPacket_t *packet,
+mulClockResult_t mulClockObserveNetwork(const mulNetwork_t *network,mulClock_t *clock, const mulTestPacket_t *packet,
                                 uint64_t localRx, uint32_t observedMs, bool valid)
 {
-  if (!valid || packet == NULL || mulAlrRoleForAddress(packet->source) != mulAlrReference) {
+  if (!valid || packet == NULL || mulNetworkRole(network,packet->source) != mulAlrReference) {
     return mulClockIgnored;
   }
   if (!clock->hasBaseline) {
@@ -193,15 +193,15 @@ bool mulClockMapFollowerToRef(const mulClock_t *clock, uint64_t localArrival,
   return mapCoordinate(clock, localArrival, nowMs, true, mapping);
 }
 
-mulClockDelayStatus_t mulClockDelayStatus(const mulClock_t *clock,
+mulClockDelayStatus_t mulClockDelayStatusNetwork(const mulNetwork_t *network,const mulClock_t *clock,
                                          const mulClockDelay_t *delay, uint32_t nowMs)
 {
   if (delay == NULL) {
     return mulClockDelayMissing;
   }
   if (!delay->valid ||
-      mulAlrRoleForAddress(delay->reference) != mulAlrReference ||
-      mulAlrRoleForAddress(delay->follower) != mulAlrFollower ||
+      mulNetworkRole(network,delay->reference) != mulAlrReference ||
+      mulNetworkRole(network,delay->follower) != mulAlrFollower ||
       delay->units != mulClockDelayReferenceDtu || delay->oneWayDtu < 0 ||
       delay->oneWayDtu > MUL_CLOCK_DELAY_MAX_DTU ||
       delay->maxAgeMs == 0 || delay->maxAgeMs > MUL_CLOCK_DELAY_MAX_AGE_MS) {
@@ -246,10 +246,10 @@ static uint64_t scaleDelayBound(uint64_t bound, int32_t skew, bool inverse)
                             UINT64_C(999999999)) / UINT64_C(1000000000);
 }
 
-static bool correctedCoordinate(const mulClock_t *clock, uint64_t input,
+static bool correctedCoordinate(const mulNetwork_t *network,const mulClock_t *clock, uint64_t input,
   const mulClockDelay_t *delay, uint32_t nowMs, bool inverse, mulClockCorrectedMapping_t *mapping)
 {
-  if (mapping == NULL || mulClockDelayStatus(clock, delay, nowMs) != mulClockDelayValid ||
+  if (mapping == NULL || mulClockDelayStatusNetwork(network,clock, delay, nowMs) != mulClockDelayValid ||
       mulClockMapStatus(clock, nowMs) != mulClockMapValid) {
     return false;
   }
@@ -295,14 +295,24 @@ static bool correctedCoordinate(const mulClock_t *clock, uint64_t input,
   return true;
 }
 
-bool mulClockMapRefToFollowerSimultaneous(const mulClock_t *clock, uint64_t referenceTx,
+bool mulClockMapRefToFollowerSimultaneousNetwork(const mulNetwork_t *network,const mulClock_t *clock, uint64_t referenceTx,
   const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping)
 {
-  return correctedCoordinate(clock, referenceTx, delay, nowMs, false, mapping);
+  return correctedCoordinate(network,clock, referenceTx, delay, nowMs, false, mapping);
 }
 
-bool mulClockMapFollowerSimultaneousToRef(const mulClock_t *clock, uint64_t localSimultaneous,
+bool mulClockMapFollowerSimultaneousToRefNetwork(const mulNetwork_t *network,const mulClock_t *clock, uint64_t localSimultaneous,
   const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping)
 {
-  return correctedCoordinate(clock, localSimultaneous, delay, nowMs, true, mapping);
+  return correctedCoordinate(network,clock, localSimultaneous, delay, nowMs, true, mapping);
 }
+
+/* Legacy API wrappers retain the default network. */
+mulClockResult_t mulClockObserve(mulClock_t *clock, const mulTestPacket_t *packet,
+                                uint64_t localRx, uint32_t observedMs, bool valid) { return mulClockObserveNetwork(NULL,clock,packet,localRx,observedMs,valid); }
+mulClockDelayStatus_t mulClockDelayStatus(const mulClock_t *clock,
+                                         const mulClockDelay_t *delay, uint32_t nowMs) { return mulClockDelayStatusNetwork(NULL,clock,delay,nowMs); }
+bool mulClockMapRefToFollowerSimultaneous(const mulClock_t *clock, uint64_t referenceTx,
+  const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping) { return mulClockMapRefToFollowerSimultaneousNetwork(NULL,clock,referenceTx,delay,nowMs,mapping); }
+bool mulClockMapFollowerSimultaneousToRef(const mulClock_t *clock, uint64_t localSimultaneous,
+  const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping) { return mulClockMapFollowerSimultaneousToRefNetwork(NULL,clock,localSimultaneous,delay,nowMs,mapping); }

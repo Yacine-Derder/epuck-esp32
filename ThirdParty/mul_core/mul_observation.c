@@ -18,10 +18,10 @@ void mulObservationExpire(mulObservation_t observations[2], uint32_t nowMs)
   for (unsigned int i=0;i<2;i++) if (!mulObservationFresh(&observations[i],nowMs)) observations[i].valid=false;
 }
 
-mulSequenceResult_t mulObservationRecord(mulObservation_t observations[2],
+mulSequenceResult_t mulObservationRecordNetwork(const mulNetwork_t *network,mulObservation_t observations[2],
   const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs)
 {
-  mulAlrRole_t role=mulAlrRoleForAddress(packet->source);
+  mulAlrRole_t role=mulNetworkRole(network,packet->source);
   if (role == mulAlrUnsupported) return mulSequenceOld;
   mulObservation_t *o=&observations[role];
   bool rebase=o->source.hasSequence && packet->sequence != o->source.sequence &&
@@ -62,16 +62,16 @@ static bool cadence(const mulObservation_t *old, const mulObservation_t *current
          rx >= 900*ms && rx <= 1100*ms;
 }
 
-bool mulAssociate(mulAssociation_t *a, mulObservation_t observations[2],
+bool mulAssociateNetwork(const mulNetwork_t *network,mulAssociation_t *a, mulObservation_t observations[2],
   const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs,
   mulSequenceResult_t *sequenceResult, mulPair_t *pair)
 {
-  mulAlrRole_t role=mulAlrRoleForAddress(packet->source);
+  mulAlrRole_t role=mulNetworkRole(network,packet->source);
   *sequenceResult=mulSequenceOld;
   mulAssociationExpire(a,observations,nowMs);
   if (role == mulAlrUnsupported) return false;
   mulObservation_t previous=observations[role];
-  *sequenceResult=mulObservationRecord(observations,packet,rx,nowMs);
+  *sequenceResult=mulObservationRecordNetwork(network,observations,packet,rx,nowMs);
   if (*sequenceResult == mulSequenceDuplicate || *sequenceResult == mulSequenceOld) return false;
   bool consecutive=cadence(&previous,&observations[role],*sequenceResult);
   mulObservation_t *ref=&observations[0], *fol=&observations[1];
@@ -88,8 +88,8 @@ bool mulAssociate(mulAssociation_t *a, mulObservation_t observations[2],
       nowMs-ref->acceptedMs > MUL_PAIR_MAX_AGE_MS ||
       a->referenceSequence != ref->source.sequence || a->referenceGeneration != ref->generation ||
       a->followerGeneration != fol->generation ||
-      mulAlrRoleForAddress(ref->sourceClock) != mulAlrReference ||
-      mulAlrRoleForAddress(fol->sourceClock) != mulAlrFollower ||
+      mulNetworkRole(network,ref->sourceClock) != mulAlrReference ||
+      mulNetworkRole(network,fol->sourceClock) != mulAlrFollower ||
       memcmp(ref->receiverClock,fol->receiverClock,8)) return false;
   int64_t difference=mulTimestampDifference(fol->source.rxTimestamp,ref->source.rxTimestamp);
   if (difference < MUL_SLOT_MIN_DTU || difference > MUL_SLOT_MAX_DTU) return false;
@@ -103,3 +103,10 @@ bool mulAssociate(mulAssociation_t *a, mulObservation_t observations[2],
   // the transported simultaneous model and rate without fitting away geometry.
   return true;
 }
+
+/* Legacy API wrappers retain the default network. */
+mulSequenceResult_t mulObservationRecord(mulObservation_t observations[2],
+  const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs) { return mulObservationRecordNetwork(NULL,observations,packet,rx,nowMs); }
+bool mulAssociate(mulAssociation_t *association, mulObservation_t observations[2],
+  const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs,
+  mulSequenceResult_t *sequenceResult, mulPair_t *pair) { return mulAssociateNetwork(NULL,association,observations,packet,rx,nowMs,sequenceResult,pair); }

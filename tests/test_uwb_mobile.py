@@ -83,6 +83,19 @@ class WireMobile(unittest.TestCase):
     self.assertLessEqual(row['interval_m'][0],truth);self.assertGreaterEqual(row['interval_m'][1],truth)
     self.assertTrue(row['output_delayed_until_next_reference'])
   finally:replay.close()
+ def test_explicit_custom_roster_preserves_conditional_only_contract(self):
+  from uwb_collect import decode
+  lines=subprocess.check_output([str(self.producer),'0','4000','4477','10000','-5000','4263','900000','66','35'],text=True).splitlines()
+  records=[dict(decode(line),kind='telemetry') for line in lines]
+  replay=m.MobileReplay(B,reference=0x42,follower=0x23)
+  try:
+   rows=[row for record in records if (row:=replay.feed(record)) is not None]
+   self.assertEqual(len(rows),5)
+   for row in rows:
+    self.assertEqual((row['reference'],row['follower']),(0x42,0x23))
+    self.assertEqual(row['status'],'conditional');self.assertIsNone(row['measurement'])
+    self.assertFalse(row['point_measurement_valid'])
+  finally:replay.close()
  def test_loss_duplicate_bad_age_and_epoch_do_not_create_measurements(self):
   for transform in ('missing','reordered','duplicate','wrap','age','epoch','generation'):
    records=[dict(r) for r in self.records]
@@ -125,4 +138,7 @@ class WireMobile(unittest.TestCase):
    subprocess.run([sys.executable,str(ROOT/'tools/uwb_mobile.py'),str(capture),'--bounds',str(bounds),'--output',str(output)],check=True)
    rows=[json.loads(line) for line in output.read_text().splitlines()]
    self.assertGreater(len(rows),3);self.assertTrue(all(not r['point_measurement_valid'] for r in rows))
+   previous=output.read_bytes()
+   bad=subprocess.run([sys.executable,str(ROOT/'tools/uwb_mobile.py'),str(capture),'--bounds',str(bounds),'--reference','255','--output',str(output)],capture_output=True,text=True)
+   self.assertEqual(bad.returncode,2);self.assertNotIn('Traceback',bad.stderr);self.assertEqual(previous,output.read_bytes())
 if __name__=='__main__':unittest.main()
