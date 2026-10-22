@@ -106,6 +106,18 @@ class WireMobile(unittest.TestCase):
     if transform in ('duplicate','wrap'):self.assertGreater(count,3)
     if transform in ('missing','reordered'):self.assertLess(count,5)
    finally:replay.close()
+ def test_native_context_recreation_cannot_close_old_mobile_pair(self):
+  replay=m.MobileReplay(B)
+  try:
+   # ref5/fol5 create the first valid candidate. Simulate the native context
+   # being evicted at its bounded capacity before ref6, without a radio epoch.
+   for r in self.records[:12]:replay.feed(r)
+   self.assertTrue(any('pair' in state for state in replay.states.values()))
+   key=next(iter(replay.shared.contexts))
+   replay.shared.lib.hybrid_free(replay.shared.contexts.pop(key))
+   replay.shared.generations.pop(key)
+   self.assertIsNone(replay.feed(self.records[12]))
+  finally:replay.close()
  def test_executable_requires_explicit_bounds_and_writes_conditional_jsonl(self):
   with tempfile.TemporaryDirectory() as temp:
    d=Path(temp);capture=d/'capture.jsonl';bounds=d/'bounds.json';output=d/'out.jsonl'

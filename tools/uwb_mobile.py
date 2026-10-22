@@ -106,7 +106,7 @@ class MobileReplay:
             if len(self.states)>=128:self.states.pop(next(iter(self.states)))
             self.states[key]={}
         state=self.states[key]
-        if row['replay_reset_on_captured_generation']:state.clear()
+        if row['replay_context_created'] or row['replay_reset_on_captured_generation']:state.clear()
         if not row['broadcast']:return None
         if row['source_order'] in (3,4):return None # Duplicate/old: no refresh or pending-pair loss.
         if record['capture_age_ms']>15:state.clear();return unavailable('late/invalid capture')

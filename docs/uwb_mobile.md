@@ -163,8 +163,13 @@ mobile localization. Reducing the existing slot may reduce the conditional error
 but changing working ALR images is not necessary for this analysis. C/D remain
 separate future work.
 
-Validated software checkpoint: all52 Python tests and actual host C transport /
-shared-replay builds pass, including11 focused moving-feasibility/interpolation
+Validated software checkpoint: all53 Python tests and actual host C transport /
+shared-replay builds pass, including12 focused moving-feasibility/interpolation
 checks. The native ABI compiles with Wall/Wextra/Werror. No firmware source or
 build configuration changes are part of this host-only checkpoint; no devices
 were flashed. Shared core manifests remain pinned/unchanged.
+
+Native replay context recreation (including capacity eviction) is explicitly
+reported to the mobile wrapper and clears pending interpolation, independently
+of any physical receiver epoch. A regression exercises loss of the native context
+with a valid pending pair; its next reference cannot close the old candidate.

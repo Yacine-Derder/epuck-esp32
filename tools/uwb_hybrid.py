@@ -43,7 +43,8 @@ class Replay:
         old_generations=self.generations.get(key)
         generation_reset=old_generations is not None and any(a and b and a!=b for a,b in zip(old_generations,generations))
         if generation_reset:self.lib.hybrid_free(self.contexts.pop(key))
-        if key not in self.contexts:
+        context_created=key not in self.contexts
+        if context_created:
             # Bound receiver epochs, retaining no cross-boot association history.
             if len(self.contexts)>=128:
                 old_key=next(iter(self.contexts));self.lib.hybrid_free(self.contexts.pop(old_key));self.generations.pop(old_key,None)
@@ -59,6 +60,7 @@ class Replay:
                    receiver_domain=dict(node=node,radio=radio,epoch=epoch),observed_ms=now,slot_ms=self.slot,rate_policy=policy,
                    remote_boot_epoch_known=False,physical_uncertainty='unknown',stationarity_assumed=policy=='stationary')
         row['status']=STATUS.get(row['status_code'],'NOT_ASSOCIATED')
+        row['replay_context_created']=context_created
         row['replay_reset_on_captured_generation']=generation_reset
         row['captured_reference_generation']=r.get('reference_generation');row['captured_follower_generation']=r.get('follower_generation')
         if row['associated']:
