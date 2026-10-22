@@ -299,3 +299,13 @@ and safety/coexistence remain user validation tasks.
 Full configuration, wire schemas, build paths, multi-peer scheduler assumptions,
 calibration migration and ordered hardware test campaign are maintained in the
 [STM32 network guide](https://github.com/Yacine-Derder/epuck-stm32/blob/main/docs/uwb_network.md).
+
+The passive replacement for the **original custom DW1000 TDMA RLR** uses UWB3
+records and `tools/uwb_hybrid.py`, not the unrelated0x75 beacon clock tool. Replay
+uses the verified shared C receiver implementation; `tools/uwb_localize.py` is a
+separate generic fixed-anchor2D solver. See the [heterogeneous guide](https://github.com/Yacine-Derder/epuck-stm32/blob/main/docs/hybrid_uwb.md)
+for exact ALR/RLR builds/configuration, collector/replay commands, synthetic
+fixtures and physical gates. Current two-ALR captures correctly yield no unique
+unconstrained2D position. Default hybrid rate is unknown; hybrid_static explicitly
+assumes stationary propagation. Inter-ALR TWR is not an RLR range. Physical
+interoperability, UART fault resolution and localization accuracy remain unverified.
