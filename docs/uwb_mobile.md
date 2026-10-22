@@ -310,3 +310,15 @@ radial motion can then assess Doppler. Such a validation fixture need not become
 deployment infrastructure. This would validate a sensor channel, not by itself
 supply the missing mobile observability. Further mobile admission needs one of
 the explicit constraints above and its justified uncertainty. C/D stay deferred.
+
+
+Checkpoint B coverage audit also adds complete stationary wire→UWB3 collector→
+shared C receiver/replay geometry tests at500/50/10ms. Thirty-six synthetic
+configurations cover positive, negative and zero distance difference; independent
+receiver/follower skews of both signs; native receiver40-bit wrap; and both rate
+policies. Propagation comes from Euclidean geometry, with simultaneous antenna
+clock origins. Each stationary case produces six valid signed observations within
+three DTU of geometric truth; the corresponding ordinary-hybrid case remains
+NO_RATE with no metric measurement. These are distinct stationary fixtures, not a
+moving experiment. All60 host tests and actual C transport/replay builds pass.
+No production source, firmware build, core pin or hardware validity claim changes.
