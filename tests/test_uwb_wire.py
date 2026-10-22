@@ -16,7 +16,11 @@ class Wire(unittest.TestCase):
 int main(void){
  mulTelemetry_t r={.type=mulTlmObservation,.node=10,.peer=7,.radio=2,.remoteRadio=1,.remoteEpoch=9,.epoch=8,.mode=3,.role=2,.flags=8,.transaction=42,.rawMm=-1234,.calMm=5678,.radioErrors=99,.timeouts=7,.txDropped=3,.modelVersion=19,.stamps={0xFFFFFFFFFFULL,0x0123456789ULL}};
  char line[MUL_TLM_LINE];if(!mulTelemetryEncode(line,sizeof(line),&r))return 1;puts(line);
- r.node=11;r.stamps[0]=1;if(!mulTelemetryEncode(line,sizeof(line),&r))return 1;puts(line);return 0;
+ r.node=11;r.stamps[0]=1;if(!mulTelemetryEncode(line,sizeof(line),&r))return 1;puts(line);
+ r=(mulTelemetry_t){.type=mulTlmHybridRx,.node=10,.peer=0x84,.radio=2,.mode=4,.role=2,.epoch=8,.flags=8,.legacyLength=84,.legacyRx=0xFFFFFFFFFFULL,.legacySlotMs=50,.captureAgeMs=7,.referenceGeneration=2,.followerGeneration=3};
+ for(unsigned i=0;i<84;i++)r.legacyFrame[i]=(unsigned char)i;
+ if(!mulTelemetryEncode(line,sizeof(line),&r))return 1;
+ puts(line);return 0;
 }
 ''')
             subprocess.run(['cc','-std=c11','-Wall','-Wextra','-Werror','-I'+str(ROOT/'ThirdParty/mul_core'),str(p/'produce.c'),str(ROOT/'ThirdParty/mul_core/mul_telemetry.c'),'-o',str(p/'produce')],check=True)
@@ -28,5 +32,6 @@ int main(void){
         self.assertEqual((records[0]['raw_mm'],records[0]['calibrated_mm']),(-1234,5678))
         self.assertEqual((records[0]['radio_errors'],records[0]['timeouts'],records[0]['model_version']),(99,7,19))
         self.assertEqual(records[0]['remote_epoch'],'0000000000000009')
+        self.assertEqual(records[2]['type'],'hybrid_rx');self.assertEqual(records[2]['rx'],'FFFFFFFFFF');self.assertEqual(records[2]['slot_ms'],50);self.assertEqual(records[2]['reference_generation'],2)
         rows=list(tdoa.analyze(records));self.assertEqual(rows[-1]['status'],'missing_sync')
 if __name__=='__main__':unittest.main()

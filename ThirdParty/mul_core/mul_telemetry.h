@@ -6,7 +6,7 @@
 #include <stdbool.h>
 #define MUL_TLM_BYTES 152u
 #define MUL_TLM_LINE 310u /* UWB2 + 304 hex + NUL; newline owned by transport */
-enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer};
+enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer,mulTlmHybridRx};
 enum {mulTlmRawValid=1,mulTlmCalibration=2,mulTlmCalValid=4,mulTlmStampValid=8,mulTlmTx=16};
 typedef struct {
  uint8_t type,node,peer,radio,mode,role,flags,remoteRadio,quality;
@@ -17,6 +17,9 @@ typedef struct {
  uint16_t depth,highWater;
  uint32_t dropped,uartErrors,spiCycles,serviceCycles,gapCycles,clockHz;
  uint32_t radioErrors,timeouts,txDropped,modelVersion;uint64_t remoteEpoch;
+ uint8_t legacyFrame[84],legacyLength,ratePolicy;
+ uint64_t legacyRx;uint16_t captureAgeMs,legacySlotMs;
+ uint32_t referenceGeneration,followerGeneration;
  uint64_t stamps[6]; /* ADS: t1..t6; event/observation: local marker, advertised previous TX */
 } mulTelemetry_t;
 uint16_t mulTelemetryCrc(const uint8_t *p,size_t n);

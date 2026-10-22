@@ -5,7 +5,10 @@ static void put(uint8_t *p,uint64_t v,unsigned n){for(unsigned i=0;i<n;i++)p[i]=
 static uint64_t get(const uint8_t *p,unsigned n){uint64_t v=0;for(unsigned i=0;i<n;i++)v|=(uint64_t)p[i]<<(8*i);return v;}
 uint16_t mulTelemetryCrc(const uint8_t *p,size_t n){uint16_t c=0xffff;for(size_t i=0;i<n;i++){c^=(uint16_t)p[i]<<8;for(unsigned j=0;j<8;j++)c=(uint16_t)((c<<1)^((c&0x8000)?0x1021:0));}return c;}
 static bool valid(const mulTelemetry_t *r){
- if(!r||r->type<1||r->type>5||r->radio<1||r->radio>2||!r->epoch||r->mode>3||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
+ if(!r||r->type<1||r->type>6||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
+ if(r->type==mulTlmHybridRx&&((r->legacyLength!=34&&r->legacyLength!=74&&r->legacyLength!=84)||
+    r->legacyRx>UINT64_C(0xffffffffff)||r->ratePolicy>1||
+    (r->legacySlotMs!=500&&r->legacySlotMs!=50&&r->legacySlotMs!=10)))return false;
  for(unsigned i=0;i<6;i++)if(r->stamps[i]>UINT64_C(0xffffffffff))return false;
  return true;
 }
@@ -19,17 +22,33 @@ bool mulTelemetryEncode(char *line,size_t capacity,const mulTelemetry_t *r){
  uint32_t w[]={r->dropped,r->uartErrors,r->spiCycles,r->serviceCycles,r->gapCycles,r->clockHz};for(unsigned i=0;i<6;i++)put(b+72+4*i,w[i],4);
  for(unsigned i=0;i<6;i++)put(b+96+5*i,r->stamps[i],5);
  put(b+126,r->radioErrors,4);put(b+130,r->timeouts,4);put(b+134,r->txDropped,4);put(b+138,r->modelVersion,4);put(b+142,r->remoteEpoch,8);
- put(b+150,mulTelemetryCrc(b,150),2);memcpy(line,"UWB2 ",5);
+ if(r->mode>=4||r->type==mulTlmHybridRx)b[2]=3;
+ if(r->type==mulTlmHybridRx) {
+   memset(b+40,0,110);memcpy(b+40,r->legacyFrame,r->legacyLength);put(b+124,r->legacyRx,5);b[129]=r->legacyLength;
+   put(b+130,r->captureAgeMs,2);put(b+132,r->referenceGeneration,4);put(b+136,r->followerGeneration,4);
+   b[140]=r->ratePolicy;put(b+141,r->legacySlotMs,2);put(b+143,r->radioErrors,4);
+ }
+ put(b+150,mulTelemetryCrc(b,150),2);memcpy(line,b[2]==3?"UWB3 ":"UWB2 ",5);
  static const char hex[]="0123456789ABCDEF";for(unsigned i=0;i<152;i++){line[5+2*i]=hex[b[i]>>4];line[6+2*i]=hex[b[i]&15];}line[309]=0;return true;
 }
 static int hex(char c){return c>='0'&&c<='9'?c-'0':c>='A'&&c<='F'?c-'A'+10:c>='a'&&c<='f'?c-'a'+10:-1;}
 static int32_t signed32(uint32_t v){return v<=INT32_MAX?(int32_t)v:-1-(int32_t)(UINT32_MAX-v);}
 bool mulTelemetryDecode(const char *line,mulTelemetry_t *r){
- if(!line||!r||(strncmp(line,"UWB1 ",5)&&strncmp(line,"UWB2 ",5)))return false;
+ if(!line||!r||(strncmp(line,"UWB1 ",5)&&strncmp(line,"UWB2 ",5)&&strncmp(line,"UWB3 ",5)))return false;
  unsigned size=line[3]=='1'?128:152;uint8_t b[152]={0};for(unsigned i=0;i<size;i++){int a=hex(line[5+2*i]);if(a<0)return false;int c=hex(line[6+2*i]);if(c<0)return false;b[i]=(uint8_t)(a*16+c);}
- if(line[5+2*size]||b[0]!=0x4d||b[1]!=0x54||b[2]!=(size==128?1:2)||get(b+size-2,2)!=mulTelemetryCrc(b,size-2))return false;
+ if(line[5+2*size]||b[0]!=0x4d||b[1]!=0x54||b[2]!=(unsigned)(line[3]-'0')||get(b+size-2,2)!=mulTelemetryCrc(b,size-2))return false;
  mulTelemetry_t d={.type=b[3],.node=b[4],.peer=b[5],.radio=b[6],.mode=b[7],.role=b[8],.flags=b[9],.remoteRadio=b[10],.quality=b[11]};
  d.sequence=(uint32_t)get(b+12,4);d.epoch=get(b+16,8);d.exchange=get(b+24,8);d.transaction=(uint32_t)get(b+32,4);d.uptimeMs=(uint32_t)get(b+36,4);
+ if(d.type==mulTlmHybridRx) {
+   if(b[2]!=3||b[147]||b[148]||b[149]||b[129]>84)return false;
+   d.legacyLength=b[129];memcpy(d.legacyFrame,b+40,d.legacyLength);d.legacyRx=get(b+124,5);
+   d.captureAgeMs=(uint16_t)get(b+130,2);d.referenceGeneration=(uint32_t)get(b+132,4);d.followerGeneration=(uint32_t)get(b+136,4);
+   d.ratePolicy=b[140];d.legacySlotMs=(uint16_t)get(b+141,2);d.radioErrors=(uint32_t)get(b+143,4);
+   for(unsigned i=d.legacyLength;i<84;i++)if(b[40+i])return false;
+   if(!valid(&d))return false;
+   *r=d;return true;
+ }
+ if((b[2]<3&&d.mode>3)||d.type>5)return false;
  d.rawMm=signed32((uint32_t)get(b+40,4));d.calMm=signed32((uint32_t)get(b+44,4));
  uint32_t *v[]={&d.attempts,&d.completed,&d.aborted,&d.rejected,&d.invalid};for(unsigned i=0;i<5;i++)*v[i]=(uint32_t)get(b+48+4*i,4);
  d.depth=(uint16_t)get(b+68,2);d.highWater=(uint16_t)get(b+70,2);

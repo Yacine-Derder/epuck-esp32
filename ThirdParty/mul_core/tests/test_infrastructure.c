@@ -32,5 +32,11 @@ int main(void){
  assert(!mulTimeDelta((mulTimeEvent_t){a,MUL_TIMESTAMP_MASK+1,true},(mulTimeEvent_t){a,90,true},&delta));
  assert(!mulTimeDelta((mulTimeEvent_t){a,MUL_TIME_MAX_DELTA+1,true},(mulTimeEvent_t){a,0,true},&delta));
  a.epoch++;assert(mulArrivalUpdate(&m,(mulTimeEvent_t){a,10,true},(mulTimeEvent_t){c,20,true})&&!m.valid&&m.samples==1);
+ r=(mulTelemetry_t){.type=mulTlmHybridRx,.node=33,.peer=0x84,.radio=2,.mode=4,.role=2,.epoch=123,
+ .legacyLength=84,.legacyRx=MUL_TIMESTAMP_MASK,.captureAgeMs=15,.legacySlotMs=50,.referenceGeneration=7,.followerGeneration=8,.ratePolicy=1};
+ for(unsigned i=0;i<84;i++)r.legacyFrame[i]=(uint8_t)i;
+ assert(mulTelemetryEncode(line,sizeof(line),&r)&&!strncmp(line,"UWB3 ",5));
+ assert(mulTelemetryDecode(line,&d)&&d.legacyLength==84&&d.legacyRx==MUL_TIMESTAMP_MASK&&d.captureAgeMs==15&&d.referenceGeneration==7&&d.legacySlotMs==50&&d.ratePolicy==1&&!memcmp(r.legacyFrame,d.legacyFrame,84));
+ r.legacyLength=85;assert(!mulTelemetryEncode(line,sizeof(line),&r));
  puts("Infrastructure: telemetry CRC/truncation/width, beacon codec, domain/epoch/wrap/drift/out-of-order tests passed");
 }

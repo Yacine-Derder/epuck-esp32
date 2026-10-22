@@ -13,16 +13,16 @@ from pathlib import Path
 import struct
 import time
 
-NAMES={1:'summary',2:'range',3:'event',4:'observation',5:'peer'}
+NAMES={1:'summary',2:'range',3:'event',4:'observation',5:'peer',6:'hybrid_rx'}
 
 def decode(line):
-    if not ((line.startswith('UWB1 ') and len(line)==261) or (line.startswith('UWB2 ') and len(line)==309)):
+    if not ((line.startswith('UWB1 ') and len(line)==261) or (line.startswith(('UWB2 ','UWB3 ')) and len(line)==309)):
         raise ValueError('length/prefix')
     try: data=bytes.fromhex(line[5:])
     except ValueError as error: raise ValueError('hex') from error
-    if len(data) not in (128,152) or data[:2]!=b'MT' or data[2]!=(1 if len(data)==128 else 2) or binascii.crc_hqx(data[:-2],0xffff)!=int.from_bytes(data[-2:],'little'):
+    if len(data) not in (128,152) or data[:2]!=b'MT' or data[2]!=int(line[3]) or binascii.crc_hqx(data[:-2],0xffff)!=int.from_bytes(data[-2:],'little'):
         raise ValueError('version/CRC')
-    if data[3] not in NAMES or data[6] not in (1,2) or data[7]>3 or data[8] not in (1,2) or data[9]>31 or data[10]>2:
+    if data[3] not in NAMES or data[6] not in (1,2) or data[7]>5 or data[8] not in (1,2) or data[9]>31 or data[10]>2:
         raise ValueError('fields')
     epoch,exchange=struct.unpack_from('<QQ',data,16)
     if not epoch: raise ValueError('epoch')
@@ -32,6 +32,17 @@ def decode(line):
              flags=data[9],remote_radio=data[10],quality=data[11],sequence=sequence,epoch=f'{epoch:016X}',exchange=f'{exchange:016X}',
              transaction=transaction,uptime_ms=uptime,raw_mm=raw,calibrated_mm=cal,
              raw_valid=bool(data[9]&1),calibration=bool(data[9]&2),calibrated_valid=bool(data[9]&4))
+    if data[3]==6:
+        n=data[129];slot=int.from_bytes(data[141:143],'little')
+        if data[2]!=3 or n not in (34,74,84) or data[140]>1 or slot not in (500,50,10) or any(data[40+n:124]) or any(data[147:150]):raise ValueError('legacy envelope')
+        for key in ('raw_mm','calibrated_mm','raw_valid','calibration','calibrated_valid'):out.pop(key)
+        out.update(legacy_frame=data[40:40+n].hex().upper(),legacy_length=n,rx=f'{int.from_bytes(data[124:129],"little"):010X}',
+                   capture_age_ms=int.from_bytes(data[130:132],'little'),reference_generation=int.from_bytes(data[132:136],'little'),
+                   follower_generation=int.from_bytes(data[136:140],'little'),rate_policy='stationary' if data[140] else 'unknown',slot_ms=slot,
+                   radio_errors=int.from_bytes(data[143:147],'little'),remote_epoch_known=False,epoch_scope='receiver boot/radio epoch; ALR epochs are inferred/acquisition-local',
+                   dtu_nominal_hz=63897600000,local_clock_domain=dict(node=out['node'],radio=out['radio'],epoch=out['epoch']))
+        return out
+    if data[3]>5 or (data[2]<3 and data[7]>3):raise ValueError('version/mode')
     for offset,name in zip(range(48,68,4),('attempts','completed','aborted','rejected','invalid')):out[name]=struct.unpack_from('<I',data,offset)[0]
     out['queue_depth'],out['queue_high']=struct.unpack_from('<HH',data,68)
     for offset,name in zip(range(72,96,4),('dropped','uart_errors','spi_off_cycles','service_cycles','gap_cycles','cpu_hz')):out[name]=struct.unpack_from('<I',data,offset)[0]
@@ -79,7 +90,7 @@ async def collect(endpoint,output,stop=None):
                 except asyncio.TimeoutError:continue
                 if not raw:raise ConnectionError('eof')
                 line=raw.decode('ascii',errors='replace').rstrip('\r\n')
-                if line.startswith(('UWB1 ','UWB2 ')):
+                if line.startswith(('UWB1 ','UWB2 ','UWB3 ')):
                     try:r=decode(line)
                     except ValueError as error:corrupt+=1;emit('corrupt',reason=str(error),count=corrupt);continue
                     ordering=order.accept(r);missing+=ordering['missing'];emit('telemetry',**r,**ordering,missing_total=missing)

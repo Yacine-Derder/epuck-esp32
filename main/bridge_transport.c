@@ -124,7 +124,7 @@ static void accept_client(uint32_t now)
 static void uart_record(const char *line)
 {
   char expected[64];
-  if(strncmp(line,"UWB1 ",5)==0||strncmp(line,"UWB2 ",5)==0) {
+  if(strncmp(line,"UWB1 ",5)==0||strncmp(line,"UWB2 ",5)==0||strncmp(line,"UWB3 ",5)==0) {
     mulTelemetry_t record;
     if(!mulTelemetryDecode(line,&record)){telemetry_corrupt++;return;}
     if(client<0||!ready||telemetry_out.count==BRIDGE_SLOTS){telemetry_drops++;return;}
