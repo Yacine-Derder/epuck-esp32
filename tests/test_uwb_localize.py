@@ -27,6 +27,8 @@ class Localization(unittest.TestCase):
         self.assertEqual(m.solve_2d(A,data)['status'],'impossible_range_difference')
         data=observations((1,2),'range');data[0]['value_m']+=5
         self.assertEqual(m.solve_2d(A,data)['status'],'inconsistent_measurements')
+        self.assertEqual(m.solve_2d(A,data,max_residual_m=float('nan'))['status'],'invalid_residual_threshold')
+        self.assertEqual(m.solve_2d(A,[None])['status'],'invalid_measurement')
         data[0]['value_m']=float('nan');self.assertEqual(m.solve_2d(A,data)['status'],'invalid_measurement')
     def test_ambiguous_and_bounded_geometry(self):
         a={k:v for k,v in A.items() if k!='3'};p=(-2,-2);d={k:math.dist(v,p) for k,v in a.items()}

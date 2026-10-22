@@ -20,6 +20,8 @@ def load_geometry(path):
 def solve_2d(anchors,measurements,bounds=None,max_residual_m=.25):
     failure=lambda reason:dict(status=reason,position=None,physical_uncertainty='unknown')
     try:
+        if not math.isfinite(max_residual_m) or max_residual_m<=0:return failure('invalid_residual_threshold')
+        if not isinstance(anchors,dict):return failure('invalid_geometry')
         positions={identity(k):(float(v[0]),float(v[1])) for k,v in anchors.items()}
         if any(not math.isfinite(c) for v in positions.values() for c in v):return failure('invalid_geometry')
         if bounds is not None:
@@ -27,6 +29,7 @@ def solve_2d(anchors,measurements,bounds=None,max_residual_m=.25):
             if len(bounds)!=4 or not all(math.isfinite(v) for v in bounds) or bounds[0]>=bounds[1] or bounds[2]>=bounds[3]:return failure('invalid_bounds')
         equations=[];used=set();seen={}
         for m in measurements:
+            if not isinstance(m,dict):return failure('invalid_measurement')
             if not m.get('valid',False):continue
             kind=m['kind'];anchor=identity(m['anchor']);value=float(m['value_m']);sigma=float(m.get('sigma_m',1))
             if kind not in ('range','range_difference') or anchor not in positions or not math.isfinite(value) or not math.isfinite(sigma) or sigma<=0:return failure('invalid_measurement')
