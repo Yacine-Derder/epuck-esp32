@@ -26,6 +26,21 @@ class Feasibility(unittest.TestCase):
   arrival_difference=C*(t_fol-t_ref-slot)
   simultaneous=5-2*(x0+v*t_fol)
   self.assertAlmostEqual(arrival_difference-simultaneous,v*(t_fol-t_ref),places=6)
+ def test_unbounded_between_packet_clock_curvature_can_hide_different_geometry(self):
+  # Two stationary positions and a smooth clock warp give identical endpoints
+  # AND follower reception, despite different simultaneous range differences.
+  rA0=math.hypot(1,1);rA1=math.hypot(4,1)
+  refB0=rA1/C;refB1=1+refB0
+  folA=.5+math.hypot(1-5,1)/C
+  folB=.5+math.hypot(4-5,1)/C
+  phase=(rA0-rA1)/C
+  k=(folA-folB-phase)/((folB-refB0)*(folB-refB1))
+  clockB=lambda t:t+phase+k*(t-refB0)*(t-refB1)
+  self.assertAlmostEqual(clockB(refB0),rA0/C,places=14)
+  self.assertAlmostEqual(clockB(refB1),1+rA0/C,places=14)
+  self.assertAlmostEqual(clockB(folB),folA,places=14)
+  self.assertGreater(abs((math.hypot(1-5,1)-rA0)-(math.hypot(4-5,1)-rA1)),5.)
+  self.assertLess(abs(k),200e-6) # Even a small plausible clock warp is ambiguous.
  def test_apparent_arrival_mapping_cancels_linear_radial_motion(self):
   x0=2.;v=.2;alpha=1+20e-6
   ref_rx=lambda emission:alpha*(emission+x0/C)/(1-v/C)

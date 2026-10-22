@@ -1,0 +1,9 @@
+{
+  "max_speed_m_s": 0.5,
+  "max_acceleration_m_s2": 0.3,
+  "min_reference_distance_m": 1.0,
+  "relative_clock_slew_ppb_s": 2.0,
+  "oscillator_ppm_bound": 100.0,
+  "baseline_max_m": 5.0,
+  "metrology_error_m": 0.0
+}

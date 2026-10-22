@@ -309,3 +309,7 @@ fixtures and physical gates. Current two-ALR captures correctly yield no unique
 unconstrained2D position. Default hybrid rate is unknown; hybrid_static explicitly
 assumes stationary propagation. Inter-ALR TWR is not an RLR range. Physical
 interoperability, UART fault resolution and localization accuracy remain unverified.
+
+Moving passive RLR research: [observability and conditional offline estimator](docs/uwb_mobile.md).
+It requires explicit motion/clock/metrology bounds and does not claim true
+oscillator-rate recovery, a validated point TDoA or a two-anchor2D position.
