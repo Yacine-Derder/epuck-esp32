@@ -15,14 +15,15 @@ static unsigned mock_connected, mock_fault, mock_writes;
 static uint32_t mock_time;
 static int mock_uart_read, mock_uart_write=1;
 static const char *mock_input;
+static unsigned mock_read_tick;
 unsigned xEventGroupGetBits(void *group) { (void)group; return mock_connected; }
 int xQueueReceive(void *queue,void *out,int ticks) {
  (void)queue;(void)ticks;
  if(!mock_fault) return 0; ((uart_event_t *)out)->type=(int)mock_fault; mock_fault=0; return 1;
 }
 int uart_read_bytes(int uart,void *buffer,unsigned length,int ticks) {
- (void)uart;assert(ticks==0);
- if(mock_input) { unsigned n=(unsigned)strlen(mock_input);assert(n<=length);memcpy(buffer,mock_input,n);mock_input=NULL;return (int)n; }
+ (void)uart;assert(ticks==0);mock_time+=mock_read_tick;
+ if(mock_input) { unsigned n=(unsigned)strlen(mock_input);if(n>length)n=length;memcpy(buffer,mock_input,n);mock_input+=n;if(!*mock_input)mock_input=NULL;return (int)n; }
  return mock_uart_read;
 }
 int uart_tx_chars(int uart,const char *bytes,unsigned length) { (void)uart;(void)bytes; assert(length); ++mock_writes; return mock_uart_write; /* partial FIFO write */ }
@@ -116,6 +117,16 @@ static void uwb_telemetry_tests(void) {
  uart_record(line);assert(telemetry_out.count==1);owner_once();
  char forwarded[512]={0};ssize_t bytes=recv(peer,forwarded,sizeof(forwarded)-1,0);assert(bytes==310&&!memcmp(forwarded,line,309)&&forwarded[309]=='\n');
  forwarded[309]=0;mulTelemetry_t decoded;assert(mulTelemetryDecode(forwarded,&decoded)&&decoded.tdoa.rangeDifferenceMm==-131&&decoded.tdoa.followerSequence==3676);
+ /* Tick advancement inside UART RX must not expire a fresh record. */
+ for(unsigned i=0;i<200;i++) {
+   char wire[MUL_TLM_LINE+1];snprintf(wire,sizeof(wire),"%s\n",line);
+   mock_input=wire;owner_once();
+   mock_read_tick=1;owner_once();mock_read_tick=0;
+   assert(telemetry_out.count==0);
+   memset(forwarded,0,sizeof(forwarded));
+   bytes=recv(peer,forwarded,sizeof(forwarded)-1,MSG_DONTWAIT);
+   assert(bytes==310&&!memcmp(forwarded,line,309));
+ }
  for(unsigned i=0;i<BRIDGE_SLOTS+2;i++)uart_record(line);assert(telemetry_out.count==BRIDGE_SLOTS);
  disconnect_client("test_cleanup",0);close(peer);assert(!telemetry_out.count);
  uart_record(line);assert(!telemetry_out.count);

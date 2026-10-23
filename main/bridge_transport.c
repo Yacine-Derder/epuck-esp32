@@ -59,7 +59,7 @@ static void disconnect_client(const char *reason, int detail)
   /* One nonblocking attempt only. Do not splice a notice into a partially
    * transmitted record, drain queues, wait for ACKs or defer STOP/CLOSE.
    */
-  if (tcp_out.offset==0U) {
+  if (tcp_out.offset==0U && telemetry_out.offset==0U) {
     char notice[384];
     int n=snprintf(notice,sizeof(notice),"DISCONNECT %s reason=%s detail=%d stm=%s\n",
                    session,reason,detail,stm_diagnostic[0]?stm_diagnostic:"-");
@@ -216,6 +216,10 @@ static void transport_task(void *argument)
       if (n>0) bridge_advance(&uart_out,(size_t)n);
       else if (n<0) disconnect_client("uart_write_error",n);
     }
+    /* uart_record timestamps at receipt, which can be later than the loop's
+     * initial snapshot. Refresh before unsigned age arithmetic: otherwise a
+     * 1ms tick crossing makes a fresh record appear ~49 days old. */
+    now=now_ms();
     if(telemetry_out.count&&(uint32_t)(now-telemetry_at[telemetry_out.tail])>=1000U) {
       if(telemetry_out.offset)disconnect_client("telemetry_partial_stalled",0);
       else {telemetry_drops++;bridge_advance(&telemetry_out,telemetry_out.length[telemetry_out.tail]);}
