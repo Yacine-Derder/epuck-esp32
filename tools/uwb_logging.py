@@ -22,7 +22,7 @@ def utc():
 
 
 class CompactLog:
-    def __init__(self, output, endpoint, health_seconds=30):
+    def __init__(self, output, endpoint, health_seconds=30, metadata=None):
         if not math.isfinite(health_seconds) or health_seconds < 0:
             raise ValueError('health interval must be finite and nonnegative')
         self.output, self.health_seconds = output, health_seconds
@@ -32,7 +32,8 @@ class CompactLog:
         self.bridge_counts = None
         self.write(dict(type='capture', schema=1, capture=self.capture, endpoint=endpoint,
                         measurement_source='stm32_onboard', host_time='UTC reception',
-                        measurement_time='receiver u_ms; wraps uint32', uncertainty='unknown'))
+                        measurement_time='receiver u_ms; wraps uint32', uncertainty='unknown',
+                        **({'experiment': metadata} if metadata is not None else {})))
 
     def write(self, row):
         row.setdefault('t', utc())
@@ -152,7 +153,14 @@ class LiveMonitor:
             s = self.states.setdefault(endpoint, dict(connection='connecting', valid=0, invalid=0, mean=0., m2=0., latest=None, status='waiting'))
             if row['kind'] in ('connected', 'disconnected'):
                 s['connection'] = row['kind']
+            elif row['kind'] == 'telemetry' and row['type'] == 'tdoa_vector' and row.get('sequence_status') not in ('old', 'duplicate'):
+                valid = sum(value['valid'] for value in row['followers'])
+                s['vector'] = {value['follower_node']: value['range_diff_mm'] for value in row['followers']}
+                s['status'] = f"cycle={row['cycle']} {valid}/{len(row['followers'])} valid"
+                s['valid'] += valid
+                s['invalid'] += len(row['followers'])-valid
             elif row['kind'] == 'telemetry' and row['type'] == 'tdoa' and row.get('sequence_status') not in ('old', 'duplicate'):
+                s['vector'] = None
                 s['status'] = row['status_name']
                 s['latest'] = row['range_diff_mm']
                 if row['valid']:
@@ -173,6 +181,10 @@ class LiveMonitor:
         while not self.stop_event.wait(self.interval):
             parts = []
             for endpoint, s in self.snapshot().items():
+                if s.get('vector') is not None:
+                    values = ' '.join(f"0x{node:02X}={'--' if value is None else f'{value/1000.:+.3f}m'}" for node, value in s['vector'].items())
+                    parts.append(f"{endpoint} {s['connection']} {s['status']} {values}")
+                    continue
                 latest = '--' if s['latest'] is None else f"{s['latest']/1000.:+.3f}m"
                 mean = f"{s['mean']:+.3f}" if s['valid'] else '--'
                 parts.append(f"{endpoint} {s['connection']} dd={latest} {s['status']} valid={s['valid']} invalid={s['invalid']} mean={mean}m sd={s['std']:.3f}m")
@@ -208,7 +220,7 @@ def relevant_log(path):
             except (ValueError, UnicodeError):
                 continue
             if isinstance(record, dict) and ((record.get('kind') == 'telemetry' and
-                    record.get('type') in ('summary', 'range', 'event', 'observation', 'peer', 'hybrid_rx', 'tdoa') and
+                    record.get('type') in ('summary', 'range', 'event', 'observation', 'peer', 'hybrid_rx', 'tdoa', 'tdoa_vector', 'multi_rx') and
                     all(key in record for key in ('node', 'radio', 'epoch'))) or
                     (record.get('type') == 'capture' and record.get('measurement_source') == 'stm32_onboard')):
                 return True

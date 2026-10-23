@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 import unittest
 from test_uwb_collect import collector
-from tools.uwb_logging import CompactLog
+from tools.uwb_logging import CompactLog, LiveMonitor
 
 ROOT = Path(__file__).parents[1]
 
@@ -89,3 +89,16 @@ class Multi(unittest.TestCase):
         data[3] = 6
         with self.assertRaises(ValueError):
             collector.decode(wire(data))
+
+    def test_experiment_metadata_and_vector_live_status(self):
+        stream = io.StringIO()
+        metadata = {'experiment_id': 'N8-static', 'alr_positions_m': {'132': [0, 0]}, 'rlr_ground_truth_m': [1, 2]}
+        CompactLog(stream, 'test', metadata=metadata)
+        self.assertEqual(json.loads(stream.getvalue())['experiment'], metadata)
+        monitor = LiveMonitor(False)
+        monitor.enabled = True
+        value = collector.decode(self.lines[-1])
+        monitor.accept('test', dict(value, kind='telemetry'))
+        state = monitor.snapshot()['test']
+        self.assertEqual(len(state['vector']), 7)
+        self.assertIn('4/7 valid', state['status'])

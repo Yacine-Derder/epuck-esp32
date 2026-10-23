@@ -12,8 +12,9 @@ AVAILABLE does not establish antenna calibration, bounded uncertainty or accurac
 Update **both STM32 and ESP32**: the additive `UWB3` record type7 uses the same
 152-byte binary/309-character text/310-byte UART line as existing types, but older
 ESP32 validators reject the new type. Existing UWB1/2/3 logs/types remain readable.
-ALR radio firmware, packet formats, TDMA, TWR and synchronization are unchanged.
-Canonical core pin e14673d6e4cfe582cce4da961a93876556a88f00 supplies runtime timing;
+The legacy two-ALR path retains its radio frames, TDMA, TWR and synchronization.
+The additive multi-ALR profile described below requires matching updated ALR firmware.
+The canonical revision is recorded in ThirdParty/mul_core/UPSTREAM.json;
 checked-in snapshots verify/build offline without fetching.
 
 Build (these commands do not program robots):
@@ -327,5 +328,9 @@ The first command drives real STM32 adapter/math/queues using synthetic hardware
 registers and geometry for N2/3/4/8. The replay passes its80 real UART vector
 records through the ESP owner, loopback TCP reconnect and compact logger, and
 compares all follower values and identities. Neither command accesses hardware.
-The optional live scalar statistics still describe the legacy single-pair stream;
-use the vector JSONL for multi-ALR analysis.
+The live display shows each follower ID/value and valid-count for multi vectors;
+legacy scalar mean/deviation statistics retain their existing meaning.
+Optional `--metadata experiment.json` copies an experiment JSON object (up to64KiB)
+into the capture header, or a raw experiment record. Example fields are
+`experiment_id`, `alr_positions_m`, and `rlr_ground_truth_m`; metadata never affects
+measurements or robot configuration.

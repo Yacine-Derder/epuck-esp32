@@ -110,16 +110,17 @@ class Ordering:
         self.last[key]=seq
         return dict(sequence_status='forward' if delta==1 else 'gap',missing=delta-1)
 
-async def collect(endpoint,output,stop=None, *, raw=False,health_seconds=30,monitor=None):
+async def collect(endpoint,output,stop=None, *, raw=False,health_seconds=30,monitor=None,metadata=None):
     host,sep,port=endpoint.rpartition(':')
     if not sep:host,port=endpoint,'3333'
     order=Ordering();reconnects=0;corrupt=0;missing=0
-    compact=None if raw else CompactLog(output,endpoint,health_seconds)
+    compact=None if raw else CompactLog(output,endpoint,health_seconds,metadata=metadata)
     def emit(kind,**fields):
         record=dict(kind=kind,endpoint=endpoint,host_received_utc=datetime.datetime.now(datetime.timezone.utc).isoformat(),host_monotonic_ns=time.monotonic_ns(),**fields)
         if monitor:monitor.accept(endpoint,record)
         if compact:compact.accept(record)
         else:output.write(json.dumps(record,sort_keys=True,allow_nan=False)+'\n');output.flush()
+    if raw and metadata is not None:emit('experiment',metadata=metadata)
     while stop is None or not stop.is_set():
         writer=None
         try:
@@ -154,6 +155,7 @@ def main():
     parser.add_argument('--output',type=Path,default=DEFAULT_LOG_DIR,help='JSONL directory (default: ~/Documents/uwb_logs)')
     parser.add_argument('--raw','--debug',dest='raw',action='store_true',help='Complete historical diagnostic JSONL; retain native frames/epochs')
     parser.add_argument('--health-seconds',type=float,default=30,help='Compact health interval; 0 disables periodic health')
+    parser.add_argument('--metadata',type=Path,help='Optional experiment JSON object: ID, ALR positions and ground truth; copied verbatim')
     parser.add_argument('--no-live',action='store_true',help='Disable the compact live TDoA status display')
     parser.add_argument('--migrate-logs',action='store_true',help='Copy/verify recognized old logs, retain originals, then exit')
     parser.add_argument('--old-log-dir',type=Path,default=OLD_LOG_DIR,help='Migration source; used only with --migrate-logs')
@@ -163,6 +165,12 @@ def main():
     if not args.robot:parser.error('--robot is required unless --migrate-logs is selected')
     import math
     if not math.isfinite(args.health_seconds) or args.health_seconds<0:parser.error('--health-seconds must be finite and nonnegative')
+    metadata=None
+    if args.metadata:
+        if args.metadata.stat().st_size>65536:parser.error('--metadata exceeds 64KiB')
+        metadata=json.loads(args.metadata.read_text())
+        if not isinstance(metadata,dict):parser.error('--metadata must contain a JSON object')
+        json.dumps(metadata,allow_nan=False)
     args.output.mkdir(parents=True,exist_ok=True)
     if len(set(args.robot))!=len(args.robot):parser.error('duplicate endpoint')
     stamp=datetime.datetime.now(datetime.timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
@@ -175,7 +183,7 @@ def main():
                 suffix='raw' if args.raw else 'compact'
                 f=(args.output/f'{stamp}-robot-{i}-{suffix}.jsonl').open('x');streams.append(f)
                 print(f'Recording {suffix}: {f.name}',file=sys.stderr)
-                tasks.append(collect(robot,f,raw=args.raw,health_seconds=args.health_seconds,monitor=monitor))
+                tasks.append(collect(robot,f,raw=args.raw,health_seconds=args.health_seconds,monitor=monitor,metadata=metadata))
             await asyncio.gather(*tasks)
         finally:
             for f in streams:f.close()
