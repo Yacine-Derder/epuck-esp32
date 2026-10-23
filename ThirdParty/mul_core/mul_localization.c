@@ -15,7 +15,7 @@ void mulPropagationMotionBound(uint32_t ageMs,uint32_t *millimetres,uint32_t *dt
 #endif
 }
 
-void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t *o,mulPair_t *pair,
+void mulLocalizationObserveAtSlot(const mulNetwork_t *network,uint16_t offsetMs,mulLocalization_t *o,mulPair_t *pair,
   const mulRelation_t *r,const mulClock_t *rate,uint32_t now,uint32_t captureAge,bool stationary)
 {
   memset(o,0,sizeof(*o));
@@ -23,7 +23,7 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
   o->referenceSequence=pair->reference.source.sequence; o->followerSequence=pair->follower.source.sequence;
   o->referenceGeneration=pair->reference.generation; o->followerGeneration=pair->follower.generation;
   o->receiverTimestamp=pair->follower.source.rxTimestamp; o->observedMs=pair->follower.acceptedMs;
-  o->followerEpoch=r->epoch; o->slotMs=mulNetworkSlotMs(network);
+  o->followerEpoch=r->epoch; o->slotMs=offsetMs;
   o->tdoaDtu=o->rangeDifferenceMm=o->ratePpb=INT32_MIN;
   o->delayAgeMs=o->motionBoundMm=o->motionBoundDtu=UINT32_MAX;
   o->delayDtu=o->clockAgeMs=UINT16_MAX;
@@ -37,7 +37,7 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
   o->delayState=r->delayState;
   if (r->version!=2 && r->available) o->delayState=mulPropagationFresh; // v1 cannot carry numeric estimate/state.
   uint32_t elapsed=now-pair->follower.acceptedMs;
-  bool ageKnown=captureAge<=15 && elapsed<=mulNetworkPairMaxAgeMs(network);
+  bool ageKnown=captureAge<=15 && elapsed<=((uint32_t)offsetMs+200u);
   if (ageKnown && (r->version==2 || r->available) && o->delayState!=mulPropagationNone && o->delayState!=mulPropagationInvalidated) {
     o->delayAgeMs=r->delayAgeMs+elapsed+captureAge;
     if (r->version==2) o->delayDtu=r->delayDtu;
@@ -50,13 +50,13 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
     o->clockAgeMs=r->originAgeMs+elapsed+captureAge;
   if (stationary && rate && rate->hasBaseline && rate->status==mulClockValid) {
     o->rateState=mulRateStale;
-    if ((uint32_t)(now-rate->observedMs)<=mulNetworkPairMaxAgeMs(network) &&
+    if ((uint32_t)(now-rate->observedMs)<=((uint32_t)offsetMs+200u) &&
         rate->sequence==pair->reference.source.sequence && rate->referenceTx==pair->reference.source.txTimestamp &&
         rate->localRx==pair->reference.source.rxTimestamp && rate->skewPpb>=-MUL_CLOCK_MAX_PPB && rate->skewPpb<=MUL_CLOCK_MAX_PPB) {
       o->rateState=mulRateStationary; o->ratePpb=rate->skewPpb;
     }
   }
-  mulDownlink_t d=mulDownlinkComputeNetwork(network,r,pair,rate,now,captureAge,stationary);
+  mulDownlink_t d=mulDownlinkComputeAtSlot(network,offsetMs,r,pair,rate,now,captureAge,stationary);
   o->status=o->associationValid ? d.status : mulDownlinkInconsistent;
   o->clockValid=o->associationValid && pair->clockRelationAvailable;
   if (o->status==mulDownlinkAvailable) {
@@ -70,3 +70,8 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
 void mulLocalizationObserve(mulLocalization_t *observation,mulPair_t *pair,
   const mulRelation_t *relation,const mulClock_t *rate,uint32_t nowMs,
   uint32_t captureAgeMs,bool stationaryOptIn) { mulLocalizationObserveNetwork(NULL,observation,pair,relation,rate,nowMs,captureAgeMs,stationaryOptIn); }
+
+void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t *o,mulPair_t *pair,
+ const mulRelation_t *r,const mulClock_t *rate,uint32_t now,uint32_t age,bool stationary) {
+ mulLocalizationObserveAtSlot(network,mulNetworkSlotMs(network),o,pair,r,rate,now,age,stationary);
+}

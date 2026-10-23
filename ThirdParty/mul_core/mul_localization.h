@@ -39,4 +39,6 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
   const mulRelation_t *relation,const mulClock_t *rate,uint32_t nowMs,
   uint32_t captureAgeMs,bool stationaryOptIn);
 
+void mulLocalizationObserveAtSlot(const mulNetwork_t *network,uint16_t offsetMs,mulLocalization_t *observation,mulPair_t *pair,
+ const mulRelation_t *relation,const mulClock_t *rate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn);
 #endif

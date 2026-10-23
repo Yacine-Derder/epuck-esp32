@@ -21,3 +21,12 @@ cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-p
  -I. tests/test_network.c mul_hybrid.c mul_legacy_twr.c mul_clock.c mul_relation.c mul_observation.c mul_downlink.c mul_localization.c mul_common.c -lm -o "$work/network"
 "$work/network"
 done
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
+ -I. tests/test_schedule.c mul_schedule.c mul_common.c -o "$work/schedule"
+"$work/schedule"
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie -DMUL_PROP_MAX_AGE_MS=6000 \
+ -I. tests/test_multi_protocol.c mul_multi_protocol.c mul_schedule.c mul_relation.c mul_legacy_twr.c mul_clock.c mul_common.c -lm -o "$work/multi_protocol"
+"$work/multi_protocol"
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie -DMUL_PROP_MAX_AGE_MS=6000 \
+ -I. tests/test_multi_receiver.c mul_multi_receiver.c mul_multi_protocol.c mul_schedule.c mul_relation.c mul_legacy_twr.c mul_clock.c mul_common.c mul_observation.c mul_downlink.c mul_localization.c -lm -o "$work/multi_receiver"
+"$work/multi_receiver"

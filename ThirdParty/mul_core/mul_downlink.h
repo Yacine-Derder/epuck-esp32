@@ -42,4 +42,9 @@ mulDownlink_t mulDownlinkCompute(const mulRelation_t *relation,mulPair_t *pair,
   const mulClock_t *rlrRate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn);
 mulDownlink_t mulDownlinkComputeNetwork(const mulNetwork_t *network,const mulRelation_t *relation,mulPair_t *pair,
   const mulClock_t *rlrRate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn);
+/* Expected offset comes from a validated multi schedule, never another clock. */
+bool mulDownlinkRelationAtSlot(const mulNetwork_t *network,uint16_t offsetMs,const mulRelation_t *relation,mulPair_t *pair,
+ uint32_t nowMs,uint32_t captureAgeMs,int64_t *txSeparationReferenceDtu);
+mulDownlink_t mulDownlinkComputeAtSlot(const mulNetwork_t *network,uint16_t offsetMs,const mulRelation_t *relation,mulPair_t *pair,
+ const mulClock_t *rate,uint32_t nowMs,uint32_t captureAgeMs,bool stationaryOptIn);
 #endif
