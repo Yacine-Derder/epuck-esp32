@@ -43,11 +43,11 @@ mulSequenceResult_t mulObservationRecordNetwork(const mulNetwork_t *network,mulO
   return result;
 }
 
-void mulAssociationExpire(mulAssociation_t *a, mulObservation_t observations[2], uint32_t nowMs)
+void mulAssociationExpireNetwork(const mulNetwork_t *network,mulAssociation_t *a, mulObservation_t observations[2], uint32_t nowMs)
 {
   mulObservationExpire(observations,nowMs);
   if (!mulObservationFresh(&observations[0],nowMs) ||
-      (uint32_t)(nowMs-observations[0].acceptedMs) > MUL_PAIR_MAX_AGE_MS) a->pending=false;
+      (uint32_t)(nowMs-observations[0].acceptedMs) > mulNetworkPairMaxAgeMs(network)) a->pending=false;
 }
 
 static bool cadence(const mulObservation_t *old, const mulObservation_t *current,
@@ -68,7 +68,7 @@ bool mulAssociateNetwork(const mulNetwork_t *network,mulAssociation_t *a, mulObs
 {
   mulAlrRole_t role=mulNetworkRole(network,packet->source);
   *sequenceResult=mulSequenceOld;
-  mulAssociationExpire(a,observations,nowMs);
+  mulAssociationExpireNetwork(network,a,observations,nowMs);
   if (role == mulAlrUnsupported) return false;
   mulObservation_t previous=observations[role];
   *sequenceResult=mulObservationRecordNetwork(network,observations,packet,rx,nowMs);
@@ -85,14 +85,14 @@ bool mulAssociateNetwork(const mulNetwork_t *network,mulAssociation_t *a, mulObs
   bool pending=a->pending;
   a->pending=false; // Any accepted follower consumes this one candidate.
   if (!pending || !consecutive || !mulObservationFresh(ref,nowMs) ||
-      nowMs-ref->acceptedMs > MUL_PAIR_MAX_AGE_MS ||
+      nowMs-ref->acceptedMs > mulNetworkPairMaxAgeMs(network) ||
       a->referenceSequence != ref->source.sequence || a->referenceGeneration != ref->generation ||
       a->followerGeneration != fol->generation ||
       mulNetworkRole(network,ref->sourceClock) != mulAlrReference ||
       mulNetworkRole(network,fol->sourceClock) != mulAlrFollower ||
       memcmp(ref->receiverClock,fol->receiverClock,8)) return false;
   int64_t difference=mulTimestampDifference(fol->source.rxTimestamp,ref->source.rxTimestamp);
-  if (difference < MUL_SLOT_MIN_DTU || difference > MUL_SLOT_MAX_DTU) return false;
+  if (difference < mulSlotMinDtu(mulNetworkSlotMs(network)) || difference > mulSlotMaxDtu(mulNetworkSlotMs(network))) return false;
   *pair=(mulPair_t){.reference=*ref,.follower=*fol,.rawArrivalDifferenceDtu=difference,
     .physicalBoundDtu=UINT64_MAX};
   if (ref->power.status == mulPowerApplied && fol->power.status == mulPowerApplied) {
@@ -110,3 +110,5 @@ mulSequenceResult_t mulObservationRecord(mulObservation_t observations[2],
 bool mulAssociate(mulAssociation_t *association, mulObservation_t observations[2],
   const mulTestPacket_t *packet, const mulPowerRx_t *rx, uint32_t nowMs,
   mulSequenceResult_t *sequenceResult, mulPair_t *pair) { return mulAssociateNetwork(NULL,association,observations,packet,rx,nowMs,sequenceResult,pair); }
+
+void mulAssociationExpire(mulAssociation_t *a,mulObservation_t observations[2],uint32_t now) {mulAssociationExpireNetwork(NULL,a,observations,now);}

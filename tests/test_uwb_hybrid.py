@@ -25,6 +25,18 @@ class Hybrid(unittest.TestCase):
  def records(self,stationary):
   lines=subprocess.check_output([str(self.producer),str(int(stationary))],text=True).splitlines()
   return [dict(self.collect.decode(line),kind='telemetry') for line in lines]
+ def test_runtime_schedule_advertisements_replay_all_slots(self):
+  for slot in (10,50,500):
+   replay=self.host.Replay(slot)
+   try:
+    args=[str(self.producers[slot]),'1','4000','4477','10000','-5000','4263','900000','132','133','1']
+    records=[dict(self.collect.decode(line),kind='telemetry') for line in subprocess.check_output(args,text=True).splitlines()]
+    tag={10:0x40,50:0x80,500:0xc0}[slot]
+    self.assertTrue(all(bytes.fromhex(r['legacy_frame'])[24]&0xc0==tag for r in records))
+    rows=[replay.feed(r) for r in records]
+    self.assertGreater(sum(r.get('status')=='AVAILABLE' for r in rows),3)
+    self.assertTrue(all(r.get('slot_ms')==slot for r in rows))
+   finally:replay.close()
  def test_actual_wire_collector_shared_replay_and_insufficient_position(self):
   replay=self.host.Replay()
   try:

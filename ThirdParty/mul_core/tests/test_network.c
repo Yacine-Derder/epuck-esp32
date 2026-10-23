@@ -7,6 +7,7 @@
 #define MS INT64_C(63897600)
 static int64_t fast(int64_t t) {return t+(t*15000+500000000)/1000000000;}
 static void cycle(mulHybrid_t *s,const mulNetwork_t *network,unsigned seq) {
+ uint16_t slot=mulNetworkSlotMs(network);
  uint64_t reference=mulTimestampMask(MUL_TIMESTAMP_MASK-2*1000*MS+seq*1000*MS);
  uint64_t origin=mulTimestampMask(500000+seq*1000*MS);
  mulClock_t clock={.hasBaseline=true,.status=mulClockValid,.epoch=7,.sequence=seq,
@@ -16,18 +17,19 @@ static void cycle(mulHybrid_t *s,const mulNetwork_t *network,unsigned seq) {
  memcpy(delay.reference,network->addresses[0],8);memcpy(delay.follower,network->addresses[1],8);
  assert(mulClockDelayStatusNetwork(network,&clock,&delay,seq*1000)==mulClockDelayValid);
  assert(mulClockDelayStatus(&clock,&delay,seq*1000)==mulClockDelayInvalid);
- uint64_t tx=mulTimestampMask(origin+MUL_FOLLOWER_SLOT_DTU);
+ uint64_t tx=mulTimestampMask(origin+(slot*MS));
  mulRelation_t relation=mulRelationPublishNetwork(network,&clock,&delay,tx,
-  mulTimestampMask(tx-10*MS),seq*1000+MUL_FOLLOWER_SLOT_MS-10,true);
+  mulTimestampMask(tx-10*MS),seq*1000+slot-10,true);
  assert(relation.available&&relation.followerOrigin==origin);
  uint8_t frame[84];mulHybridOutput_t out;
- mulEncodeTestPacket(frame,network->addresses[0],seq,reference);
+ if(network->slotMs)assert(mulEncodeScheduledPacket(frame,network->addresses[0],seq,reference,slot));
+ else mulEncodeTestPacket(frame,network->addresses[0],seq,reference);
  uint64_t rx=mulTimestampMask(MUL_TIMESTAMP_MASK-100000+fast(seq*1000*MS+4000));
  assert(mulHybridReceive(s,frame,34,rx,1,seq*1000,&out));
- mulTestPacket_t packet={.sequence=seq+500,.txTimestamp=tx};memcpy(packet.source,network->addresses[1],8);
+ mulTestPacket_t packet={.sequence=seq+500,.txTimestamp=tx,.slotMs=network->slotMs};memcpy(packet.source,network->addresses[1],8);
  mulRelationEncode(frame,&packet,&relation);
  assert(!mulBroadcastDecode(frame,74,&packet,&relation)); /* Default roster fails closed. */
- assert(mulHybridReceive(s,frame,74,mulTimestampMask(rx+fast(MUL_FOLLOWER_SLOT_DTU+1000)),1,seq*1000+MUL_FOLLOWER_SLOT_MS,&out));
+ assert(mulHybridReceive(s,frame,74,mulTimestampMask(rx+fast((slot*MS)+1000)),1,seq*1000+slot,&out));
  if(seq>=5) {
   assert(out.associated&&out.observation.clockValid);
   assert(out.observation.status==(s->stationary?mulDownlinkAvailable:mulDownlinkNoRate));
@@ -73,6 +75,25 @@ int main(void) {
   assert(!mulTwrDecodeNetwork(&b,frame,84,&decoded)&&!mulTwrDecode(frame,84,&decoded));
   frame[5]^=1;assert(!mulTwrDecodeNetwork(&a,frame,84,&decoded));
  }
+ /* Every delay in this one executable, with disjoint receiver state. */
+ const uint16_t slots[]={10,50,500};
+ for(unsigned j=0;j<3;j++) {
+   a.slotMs=slots[j];b.slotMs=slots[(j+1)%3];
+   assert(mulNetworkValid(&a)&&mulNetworkValid(&b));
+   assert(mulHybridInitNetwork(&first,&a,receiver,true));
+   assert(mulHybridInitNetwork(&second,&b,receiver,false));
+   for(unsigned i=0;i<11;i++){cycle(&first,&a,i);cycle(&second,&b,i);}
+   assert(first.pairs&&second.pairs);
+   uint8_t frame[34];mulHybridOutput_t out;
+   assert(mulEncodeScheduledPacket(frame,a.addresses[0],11,0,slots[(j+1)%3]));
+   assert(!mulHybridReceive(&first,frame,34,0,1,11000,&out));
+   assert(first.diagnostics.reason[mulHybridScheduleMismatch]==1&&!first.association.pending&&!first.rate.hasBaseline);
+   mulEncodeTestPacket(frame,a.addresses[0],11,0);
+   assert(!mulHybridReceive(&first,frame,34,0,1,11000,&out));
+   assert(first.diagnostics.reason[mulHybridScheduleMismatch]==2);
+   assert(!mulEncodeScheduledPacket(frame,a.addresses[0],11,0,20));
+ }
+ a.slotMs=20;assert(!mulNetworkValid(&a));
  puts("Explicit roster: swapped/arbitrary IDs, simultaneous relation, clock, signed geometry, NO_RATE, strict TWR endpoints and independent receiver contexts passed");
  return 0;
 }

@@ -11,7 +11,7 @@ typedef enum {
  mulHybridSequence, mulHybridWindow, mulHybridMissingTwr, mulHybridPrefix,
  mulHybridTimestamp, mulHybridArithmetic, mulHybridCaptureAge,
  mulHybridSourceOrder, mulHybridEpoch, mulHybridMissingRelation,
- mulHybridStaleRelation, mulHybridMissingPropagation, mulHybridReasonCount
+ mulHybridStaleRelation, mulHybridMissingPropagation, mulHybridScheduleMismatch, mulHybridReasonCount
 } mulHybridReason_t;
 typedef struct {
  uint32_t reason[mulHybridReasonCount],twrFrames[5],relations,availableRelations;

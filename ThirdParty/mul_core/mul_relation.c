@@ -12,7 +12,7 @@ void mulRelationEncode(uint8_t frame[MUL_RELATION_FRAME_LENGTH],
 {
   memset(frame,0,MUL_RELATION_FRAME_LENGTH);
   mulEncodeTestPacket(frame,p->source,p->sequence,p->txTimestamp);
-  frame[24]=MUL_PACKET_CLOCK_BROADCAST; frame[34]=r->version==2 ? 2 : 1;
+  frame[24]=MUL_PACKET_CLOCK_BROADCAST|mulScheduleTag(p->slotMs); frame[34]=r->version==2 ? 2 : 1;
   frame[35]=2 | (r->available ? 1 : 0) | (r->powerCorrectedTwr ? 4 : 0) |
     (r->version==2 ? r->delayState<<3 : 0); // Overall physical bounds UNKNOWN.
   put(frame+36,r->epoch,8); put(frame+44,r->referenceSequence,4);
@@ -60,10 +60,10 @@ bool mulBroadcastDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame,
   if (length==MUL_TEST_FRAME_LENGTH) {
     if (!mulDecodeTestPacket(frame,length,&packet)) return false;
   } else {
-    if (length!=MUL_RELATION_FRAME_LENGTH || frame[24]!=MUL_PACKET_CLOCK_BROADCAST ||
+    if (length!=MUL_RELATION_FRAME_LENGTH || (frame[24]&0x3f)!=MUL_PACKET_CLOCK_BROADCAST ||
         (frame[34]!=1 && frame[34]!=2) || (frame[35]&2)==0 ||
         (frame[35] & (frame[34]==1 ? ~7 : ~63))!=0) return false;
-    uint8_t base[MUL_TEST_FRAME_LENGTH]; memcpy(base,frame,sizeof(base)); base[24]=MUL_PACKET_TEST_BROADCAST;
+    uint8_t base[MUL_TEST_FRAME_LENGTH]; memcpy(base,frame,sizeof(base)); base[24]=(frame[24]&0xc0)|MUL_PACKET_TEST_BROADCAST;
     if (!mulDecodeTestPacket(base,sizeof(base),&packet) || mulNetworkRole(network,packet.source)!=mulAlrFollower) return false;
     relation.version=frame[34];
     relation.epoch=get(frame+36,8); relation.referenceSequence=get(frame+44,4);

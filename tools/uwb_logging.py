@@ -99,10 +99,10 @@ class CompactLog:
             self.write(dict(base, type='ordering', state=row['sequence_status'], seq=row['sequence']))
             return
         if event == 'tdoa':
-            roster = (row['reference_node'], row['follower_node'], row['rate_policy'])
+            roster = (row['reference_node'], row['follower_node'], row['rate_policy'], row['slot_ms'])
             if self.rosters.get(sid) != roster:
                 self.rosters[sid] = roster
-                self.write(dict(base, type='roster', ref_node=roster[0], fol_node=roster[1], rate_policy=roster[2]))
+                self.write(dict(base, type='roster', ref_node=roster[0], fol_node=roster[1], rate_policy=roster[2], slot_ms=roster[3]))
             value = dict(base, type='tdoa', ref=row['reference_sequence'], fol=row['follower_sequence'],
                          u_ms=row['uptime_ms'], dt_dtu=row['tdoa_dtu'], dd_mm=row['range_diff_mm'])
             # A finite distance unambiguously means status=available, clock=true,

@@ -97,6 +97,13 @@ class TdoaWire(WireFixture, unittest.TestCase):
         self.assertEqual(measurements[0]['t'],'2026-10-23T14:25:12.123Z')
         self.assertNotIn('legacy_frame',output.getvalue());self.assertNotIn('stamps',output.getvalue())
 
+    def test_compact_roster_exposes_runtime_slot_changes(self):
+        output=io.StringIO();log=CompactLog(output,'x')
+        for slot in (10,50,500):
+            log.accept(dict(self.row(),slot_ms=slot))
+        rows=[json.loads(line) for line in output.getvalue().splitlines()]
+        self.assertEqual([r['slot_ms'] for r in rows if r['type']=='roster'],[10,50,500])
+
     def test_unchanged_bridge_diagnostics_are_suppressed_and_health_throttled(self):
         output=io.StringIO();log=CompactLog(output,'x',30)
         def bridge(line):log.accept(dict(kind='bridge',line=line,host_received_utc='2026-10-23T00:00:00Z'))

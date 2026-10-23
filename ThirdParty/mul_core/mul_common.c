@@ -7,6 +7,7 @@ const mulNetwork_t mulDefaultNetwork={.addresses={
   {0x84,0,0,0,0,0,0xcf,0xbc},{0x85,0,0,0,0,0,0xcf,0xbc}}};
 bool mulNetworkValid(const mulNetwork_t *network) {
   if(!network)network=&mulDefaultNetwork;
+  if(network->slotMs&&!mulSlotValid(network->slotMs))return false;
   for(unsigned i=0;i<MUL_ALR_COUNT;i++) {
     const uint8_t *a=network->addresses[i];
     if(a[0]==255||a[6]!=0xcf||a[7]!=0xbc)return false;
@@ -105,6 +106,13 @@ void mulEncodeTestPacket(uint8_t frame[MUL_TEST_FRAME_LENGTH],
   mulEncodeTimestamp(&frame[MUL_TX_TIMESTAMP_OFFSET], txTimestamp);
 }
 
+uint8_t mulScheduleTag(uint16_t slot) {return slot==10?0x40:slot==50?0x80:slot==500?0xc0:0;}
+uint16_t mulScheduleSlot(uint8_t type) {return (type>>6)==1?10:(type>>6)==2?50:(type>>6)==3?500:0;}
+bool mulEncodeScheduledPacket(uint8_t frame[MUL_TEST_FRAME_LENGTH],const uint8_t source[8],
+ uint32_t sequence,uint64_t timestamp,uint16_t slot) {
+ if(!frame||!source||!mulSlotValid(slot))return false;
+ mulEncodeTestPacket(frame,source,sequence,timestamp);frame[24]|=mulScheduleTag(slot);return true;
+}
 bool mulDecodeTestPacket(const uint8_t *frame, size_t length, mulTestPacket_t *packet)
 {
   if (length != MUL_TEST_FRAME_LENGTH || frame == NULL || packet == NULL) {
@@ -113,7 +121,7 @@ bool mulDecodeTestPacket(const uint8_t *frame, size_t length, mulTestPacket_t *p
   if (frame[0] != 0x41 || frame[1] != 0xdc ||
       frame[3] != 0xcf || frame[4] != 0xbc ||
       memcmp(&frame[21], "MUL", 3) != 0 ||
-      frame[24] != MUL_PACKET_TEST_BROADCAST || frame[2] != frame[25]) {
+      (frame[24]&0x3f) != MUL_PACKET_TEST_BROADCAST || frame[2] != frame[25]) {
     return false;
   }
   for (unsigned int i = 0; i < MUL_ADDRESS_LENGTH; i++) {
@@ -127,6 +135,18 @@ bool mulDecodeTestPacket(const uint8_t *frame, size_t length, mulTestPacket_t *p
   for (unsigned int i = 0; i < 4; i++) {
     packet->sequence |= (uint32_t)frame[25 + i] << (8 * i);
   }
+  packet->slotMs=mulScheduleSlot(frame[24]);
   packet->txTimestamp = mulDecodeTimestamp(&frame[MUL_TX_TIMESTAMP_OFFSET]);
   return true;
+}
+
+uint16_t mulSlotToleranceMs(uint16_t ms) {return ms/10<2?2:ms/10;}
+int64_t mulSlotMinDtu(uint16_t ms) {return (ms-mulSlotToleranceMs(ms))*INT64_C(63897600);}
+int64_t mulSlotMaxDtu(uint16_t ms) {return (ms+mulSlotToleranceMs(ms))*INT64_C(63897600);}
+
+bool mulSlotValid(uint32_t ms) {return ms==10||ms==50||ms==500;}
+uint16_t mulNetworkSlotMs(const mulNetwork_t *n) {return n&&n->slotMs?n->slotMs:MUL_FOLLOWER_SLOT_MS;}
+uint32_t mulNetworkPairMaxAgeMs(const mulNetwork_t *n) {return mulNetworkSlotMs(n)+200u;}
+bool mulNetworkScheduleMatches(const mulNetwork_t *n,uint16_t advertised) {
+ return advertised ? advertised==mulNetworkSlotMs(n) : !n||!n->slotMs;
 }

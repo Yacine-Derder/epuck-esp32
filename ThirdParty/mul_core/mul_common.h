@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include "mul_legacy_timing.h"
 
 #define MUL_ADDRESS_LENGTH 8
 #define MUL_TEST_FRAME_LENGTH 34
@@ -26,11 +27,19 @@ typedef struct {
   uint8_t source[MUL_ADDRESS_LENGTH];
   uint32_t sequence;
   uint64_t txTimestamp;
+  uint16_t slotMs; // 0 for legacy unadvertised broadcasts.
 } mulTestPacket_t;
 
 void mulEncodeTestPacket(uint8_t frame[MUL_TEST_FRAME_LENGTH],
                          const uint8_t source[MUL_ADDRESS_LENGTH], uint32_t sequence,
                          uint64_t txTimestamp);
+/* Scheduled broadcasts retain frame lengths and use the packet-type high bits:
+ * 01=10ms, 10=50ms, 11=500ms; 00 remains legacy/unadvertised.
+ * Older firmware rejects scheduled types rather than silently using wrong timing. */
+uint8_t mulScheduleTag(uint16_t slotMs);
+uint16_t mulScheduleSlot(uint8_t type);
+bool mulEncodeScheduledPacket(uint8_t frame[MUL_TEST_FRAME_LENGTH],
+ const uint8_t source[8],uint32_t sequence,uint64_t txTimestamp,uint16_t slotMs);
 bool mulDecodeTestPacket(const uint8_t *frame, size_t length, mulTestPacket_t *packet);
 
 uint64_t mulTimestampMask(uint64_t timestamp);
@@ -52,7 +61,17 @@ typedef enum {
 /* Explicit ordered roster. NULL in Network APIs selects this legacy default;
  * an invalid explicit roster fails closed and never falls back to defaults.
  * Each protocol/receiver instance owns its roster; no mutable global routing. */
-typedef struct {uint8_t addresses[MUL_ALR_COUNT][MUL_ADDRESS_LENGTH];} mulNetwork_t;
+typedef struct {
+ uint8_t addresses[MUL_ALR_COUNT][MUL_ADDRESS_LENGTH];
+ uint16_t slotMs; // 0: legacy API fallback; nonzero: require schedule advertisement.
+} mulNetwork_t;
+bool mulSlotValid(uint32_t ms);
+uint16_t mulNetworkSlotMs(const mulNetwork_t *n);
+uint16_t mulSlotToleranceMs(uint16_t ms);
+int64_t mulSlotMinDtu(uint16_t ms);
+int64_t mulSlotMaxDtu(uint16_t ms);
+uint32_t mulNetworkPairMaxAgeMs(const mulNetwork_t *n);
+bool mulNetworkScheduleMatches(const mulNetwork_t *n,uint16_t advertised);
 extern const mulNetwork_t mulDefaultNetwork;
 bool mulNetworkInit(mulNetwork_t *network,uint8_t reference,uint8_t follower);
 bool mulNetworkValid(const mulNetwork_t *network);

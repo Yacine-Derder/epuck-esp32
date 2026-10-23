@@ -13,7 +13,7 @@ Update **both STM32 and ESP32**: the additive `UWB3` record type7 uses the same
 152-byte binary/309-character text/310-byte UART line as existing types, but older
 ESP32 validators reject the new type. Existing UWB1/2/3 logs/types remain readable.
 ALR radio firmware, packet formats, TDMA, TWR and synchronization are unchanged.
-Canonical core pin a73b7c5904dcf8088e713c69be3136410357e2f4 remains unchanged;
+Canonical core pin e14673d6e4cfe582cce4da961a93876556a88f00 supplies runtime timing;
 checked-in snapshots verify/build offline without fetching.
 
 Build (these commands do not program robots):
@@ -24,7 +24,7 @@ cmake -S . -B build/Universal -G Ninja \
   -DCMAKE_TOOLCHAIN_FILE=cmake/gcc-arm-none-eabi.cmake \
   -DCMAKE_BUILD_TYPE=Release -DMUL_UNIVERSAL=ON -DMUL_UWB_ONLY=ON \
   -DMUL_TWR_ROLE=0 -DMUL_DIAG_ROLE=0 -DPHY_INTEROP_ROLE=0 \
-  -DMUL_HYBRID_SLOT_MS=500 -DMUL_TIMING_TRACE=ON -DMUL_ADS_TRACE_TIMES=ON
+  -DMUL_TIMING_TRACE=ON -DMUL_ADS_TRACE_TIMES=ON
 cmake --build build/Universal
 python3 tests/runtime_config/check_elf.py build/Universal/EPuck_STM32.elf
 
@@ -144,6 +144,9 @@ independent32-bit sequences, not equal transaction IDs. Status:0 no_relation,
 1 no_rate,2 stale_rate,3 inconsistent,4 available. Receiver rate-state:0 unavailable,
 1 stationary,2 stale. Invalid numeric results are null; INT32_MIN is never a distance.
 The unit of `dt_dtu` is nominal reference DTU, not host time.
+
+Roster rows additionally include `slot_ms` (10,50 or500), emitted again when the
+runtime delay changes. Existing compact fields retain their meaning.
 
 Other rows: `twr` has `peer`, `u_ms`, `mm` and optional `calibrated:true` (otherwise
 raw distance); `connection`/important `message`/`error` capture state changes;
@@ -278,3 +281,22 @@ schemas. No physical robots were flashed or contacted by these tests.
 Both native firmware builds and STM32 configuration-sector ELF validation passed.
 Physical UART/Wi-Fi delivery, RF timing and stationary measurement accuracy remain
 operator acceptance work; software tests do not establish hardware success.
+
+## Runtime slot deployment
+
+The STM32 and both ALRs now support persistent `cfg set slot_ms 10` (also50/500)
+using one firmware build per platform. New factory settings use10ms; old settings
+without a slot migrate read-only to500ms and require explicit operator selection.
+The1Hz reference cycle and onboard TDoA sign/status/null semantics are unchanged.
+Scheduled radio frames advertise their slot; mismatches fail closed. The UWB3
+UART format/record length is unchanged, so the previous ESP32 bridge firmware
+with the telemetry-delivery fix remains compatible and needs no scheduling flash.
+
+Use the coordinated build, flash and timing-acceptance procedure in the sibling
+`lps-node-firmware/docs/mul_commands.md`, section "Three-robot10ms deployment and
+hardware acceptance". Flash both ALRs and STM32, configure all three while RF is
+off, verify persistence, then enable stationary acquisition. `--raw` retains full
+advertised frames; use `tools/uwb_hybrid.py ... --slot 10` for10ms replay. The
+collector itself needs no slot flag and performs no robot configuration. Compact
+roster rows expose active `slot_ms`; old compact captures without this optional
+field remain readable. No hardware timing/accuracy is inferred from software tests.

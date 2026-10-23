@@ -1,4 +1,8 @@
 /* Synthetic physical clocks -> original wire frames -> actual C telemetry. */
+/* Historical fixtures intentionally default to the prior500ms deployment. */
+#ifndef MUL_FOLLOWER_SLOT_MS
+#define MUL_FOLLOWER_SLOT_MS 500
+#endif
 #include "mul_hybrid.h"
 #include "mul_telemetry.h"
 #include <stdio.h>
@@ -7,6 +11,7 @@
 #define MS UINT64_C(63897600)
 static int64_t scale(int64_t v,int32_t ppb){return v+(v*ppb+((v*ppb)<0?-500000000:500000000))/1000000000;}
 int main(int argc,char **argv) {
+ bool scheduled=argc>10&&atoi(argv[10]);
  bool stationary=argc==1||atoi(argv[1]);uint32_t sequence=0;
  /* Optional synthetic propagation/clock inputs; defaults preserve old fixtures.
   * Distances are converted from independent geometry by the host test. Origins
@@ -24,6 +29,7 @@ int main(int argc,char **argv) {
   uint64_t origin=mulTimestampMask(MUL_TIMESTAMP_MASK-100000+scale(i*1000*MS,followerPpb));
   for(unsigned follower=0;follower<2;follower++) {
    mulTestPacket_t packet={.source={follower?followerNode:referenceNode,0,0,0,0,0,0xcf,0xbc},.sequence=i+(follower?500:0),
+    .slotMs=scheduled?MUL_FOLLOWER_SLOT_MS:0,
     .txTimestamp=follower?mulTimestampMask(origin+scale(MUL_FOLLOWER_SLOT_DTU,followerPpb)):ref};
    unsigned n=34;
    if(follower) {
@@ -33,7 +39,8 @@ int main(int argc,char **argv) {
      .referenceOrigin=ref,.followerOrigin=origin,.skewPpb=followerPpb,.originAgeMs=MUL_FOLLOWER_SLOT_MS,
      .delayAgeMs=(i-twr)*1000+MUL_FOLLOWER_SLOT_MS,.delayDtu=anchorPath,.delayState=i-twr<=1?mulPropagationFresh:mulPropagationReused,.available=true};
     mulRelationEncode(frame,&packet,&r);n=74;
-   }else mulEncodeTestPacket(frame,packet.source,packet.sequence,packet.txTimestamp);
+   }else if(scheduled) {if(!mulEncodeScheduledPacket(frame,packet.source,packet.sequence,packet.txTimestamp,MUL_FOLLOWER_SLOT_MS))return 1;}
+   else mulEncodeTestPacket(frame,packet.source,packet.sequence,packet.txTimestamp);
    mulTelemetry_t r={.type=mulTlmHybridRx,.node=33,.peer=packet.source[0],.radio=2,.remoteRadio=1,.role=2,.mode=stationary?5:4,
      .epoch=500,.exchange=follower?1:0,.sequence=sequence++,.transaction=packet.sequence,.uptimeMs=i*1000+(follower?MUL_FOLLOWER_SLOT_MS:0),
      .flags=mulTlmStampValid,.legacyLength=n,.legacySlotMs=MUL_FOLLOWER_SLOT_MS,.captureAgeMs=1,.ratePolicy=stationary,.referenceGeneration=1,.followerGeneration=1,

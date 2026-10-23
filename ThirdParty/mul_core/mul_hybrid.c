@@ -4,7 +4,7 @@
 const char *mulHybridReasonName(mulHybridReason_t reason) {
  static const char *const names[]={"shape","address","decode","no_reference",
  "sequence","window","missing_twr","prefix","timestamp","arithmetic",
- "capture_age","source_order","epoch","missing_relation","stale_relation","missing_propagation"};
+ "capture_age","source_order","epoch","missing_relation","stale_relation","missing_propagation","slot_mismatch"};
  return (unsigned)reason<mulHybridReasonCount?names[reason]:"none";
 }
 void mulHybridDiagnostic(mulHybridDiagnostics_t *d,mulHybridReason_t reason,
@@ -24,7 +24,7 @@ void mulHybridInit(mulHybrid_t *s,const uint8_t receiver[8],bool stationary) {
 }
 
 void mulHybridExpire(mulHybrid_t *s,uint32_t now) {
- mulAssociationExpire(&s->association,s->observations,now);
+ mulAssociationExpireNetwork(&s->network,&s->association,s->observations,now);
  if(s->rate.hasBaseline&&(uint32_t)(now-s->rate.observedMs)>=MUL_SOURCE_TIMEOUT_MS)mulClockReset(&s->rate);
  if(s->twrActive&&(uint32_t)(now-s->twrStartedMs)>=200U){s->twrActive=false;s->twrTimeouts++;}
 }
@@ -88,6 +88,10 @@ bool mulHybridReceive(mulHybrid_t *s,const uint8_t *f,size_t n,uint64_t rx,uint3
    }
    if(!mulBroadcastDecodeNetwork(network,f,n,&p,&r)||mulNetworkRole(network,p.source)==mulAlrUnsupported){s->rejected++;
      mulHybridDiagnostic(&s->diagnostics,mulNetworkRole(network,f+13)==mulAlrUnsupported?mulHybridAddress:mulHybridDecode,f[24],0,0);return false;}
+   if(!mulNetworkScheduleMatches(network,p.slotMs)) {
+     s->rejected++;s->association.pending=false;mulClockReset(&s->rate);
+     mulHybridDiagnostic(&s->diagnostics,mulHybridScheduleMismatch,f[24],p.sequence,0);return false;
+   }
    if(n==MUL_RELATION_FRAME_LENGTH){s->diagnostics.relations++;if(r.available)s->diagnostics.availableRelations++;}
    s->received++;out->packet=p;out->relation=r;out->broadcast=true;
    mulAlrRole_t role=mulNetworkRole(network,p.source);

@@ -23,7 +23,7 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
   o->referenceSequence=pair->reference.source.sequence; o->followerSequence=pair->follower.source.sequence;
   o->referenceGeneration=pair->reference.generation; o->followerGeneration=pair->follower.generation;
   o->receiverTimestamp=pair->follower.source.rxTimestamp; o->observedMs=pair->follower.acceptedMs;
-  o->followerEpoch=r->epoch; o->slotMs=MUL_FOLLOWER_SLOT_MS;
+  o->followerEpoch=r->epoch; o->slotMs=mulNetworkSlotMs(network);
   o->tdoaDtu=o->rangeDifferenceMm=o->ratePpb=INT32_MIN;
   o->delayAgeMs=o->motionBoundMm=o->motionBoundDtu=UINT32_MAX;
   o->delayDtu=o->clockAgeMs=UINT16_MAX;
@@ -37,7 +37,7 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
   o->delayState=r->delayState;
   if (r->version!=2 && r->available) o->delayState=mulPropagationFresh; // v1 cannot carry numeric estimate/state.
   uint32_t elapsed=now-pair->follower.acceptedMs;
-  bool ageKnown=captureAge<=15 && elapsed<=MUL_PAIR_MAX_AGE_MS;
+  bool ageKnown=captureAge<=15 && elapsed<=mulNetworkPairMaxAgeMs(network);
   if (ageKnown && (r->version==2 || r->available) && o->delayState!=mulPropagationNone && o->delayState!=mulPropagationInvalidated) {
     o->delayAgeMs=r->delayAgeMs+elapsed+captureAge;
     if (r->version==2) o->delayDtu=r->delayDtu;
@@ -50,7 +50,7 @@ void mulLocalizationObserveNetwork(const mulNetwork_t *network,mulLocalization_t
     o->clockAgeMs=r->originAgeMs+elapsed+captureAge;
   if (stationary && rate && rate->hasBaseline && rate->status==mulClockValid) {
     o->rateState=mulRateStale;
-    if ((uint32_t)(now-rate->observedMs)<=MUL_PAIR_MAX_AGE_MS &&
+    if ((uint32_t)(now-rate->observedMs)<=mulNetworkPairMaxAgeMs(network) &&
         rate->sequence==pair->reference.source.sequence && rate->referenceTx==pair->reference.source.txTimestamp &&
         rate->localRx==pair->reference.source.rxTimestamp && rate->skewPpb>=-MUL_CLOCK_MAX_PPB && rate->skewPpb<=MUL_CLOCK_MAX_PPB) {
       o->rateState=mulRateStationary; o->ratePpb=rate->skewPpb;

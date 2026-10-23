@@ -17,7 +17,7 @@ bool mulDownlinkRelationNetwork(const mulNetwork_t *network,const mulRelation_t 
   uint64_t converted;
   if (!mulRelationInverse(r,pair->follower.source.txTimestamp,age+captureAgeMs,&converted)) return false;
   int64_t dt=mulTimestampDifference(converted,pair->reference.source.txTimestamp);
-  if (dt<MUL_SLOT_MIN_DTU || dt>MUL_SLOT_MAX_DTU) return false;
+  if (dt<mulSlotMinDtu(mulNetworkSlotMs(network)) || dt>mulSlotMaxDtu(mulNetworkSlotMs(network))) return false;
   *txSeparation=dt; pair->clockRelationAvailable=true;
   return true;
 }
@@ -39,13 +39,13 @@ mulDownlink_t mulDownlinkComputeNetwork(const mulNetwork_t *network,const mulRel
   result.status=mulDownlinkNoRate;
   if (!stationaryOptIn || !rate || !rate->hasBaseline || rate->status!=mulClockValid) return result;
   result.status=mulDownlinkStaleRate;
-  if ((uint32_t)(nowMs-rate->observedMs)>MUL_PAIR_MAX_AGE_MS ||
+  if ((uint32_t)(nowMs-rate->observedMs)>mulNetworkPairMaxAgeMs(network) ||
       rate->sequence!=pair->reference.source.sequence || rate->referenceTx!=pair->reference.source.txTimestamp ||
       rate->localRx!=pair->reference.source.rxTimestamp ||
       rate->skewPpb < -MUL_CLOCK_MAX_PPB || rate->skewPpb > MUL_CLOCK_MAX_PPB) return result;
   int64_t raw=mulTimestampDifference(pair->follower.source.rxTimestamp,pair->reference.source.rxTimestamp);
   result.status=mulDownlinkInconsistent;
-  if (raw!=pair->rawArrivalDifferenceDtu || raw<MUL_SLOT_MIN_DTU || raw>MUL_SLOT_MAX_DTU) return result;
+  if (raw!=pair->rawArrivalDifferenceDtu || raw<mulSlotMinDtu(mulNetworkSlotMs(network)) || raw>mulSlotMaxDtu(mulNetworkSlotMs(network))) return result;
   result.ratePpb=rate->skewPpb;
   result.rawRxSeparationRef=intervalToReference(raw,rate->skewPpb);
   result.rawTdoaRef=result.rawRxSeparationRef-result.txSeparationRef;

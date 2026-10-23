@@ -48,6 +48,7 @@ typedef struct {
   bool geometricTdoaAvailable; // Also requires a justified receiver/reference rate.
 } mulPair_t;
 
+void mulAssociationExpireNetwork(const mulNetwork_t *network,mulAssociation_t *a,mulObservation_t observations[2],uint32_t nowMs);
 void mulAssociationExpire(mulAssociation_t *association,
   mulObservation_t observations[2], uint32_t nowMs);
 // Records/tracks first, then associates only consecutive, cadence-checked sources.
