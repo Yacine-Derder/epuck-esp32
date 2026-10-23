@@ -13,8 +13,8 @@ Update **both STM32 and ESP32**: the additive `UWB3` record type7 uses the same
 152-byte binary/309-character text/310-byte UART line as existing types, but older
 ESP32 validators reject the new type. Existing UWB1/2/3 logs/types remain readable.
 ALR radio firmware, packet formats, TDMA, TWR and synchronization are unchanged.
-Canonical core pin a73b7c5904dcf8088e713c69be3136410357e2f4 is a local unpublished
-commit; checked-in snapshots verify/build offline without fetching or pushing.
+Canonical core pin a73b7c5904dcf8088e713c69be3136410357e2f4 remains unchanged;
+checked-in snapshots verify/build offline without fetching.
 
 Build (these commands do not program robots):
 
@@ -194,19 +194,87 @@ or overwritten. No symlink masks outdated scripts. Active tools now default to
 The actual migration copied three files (one JSONL and ALR132/133 logs), verified
 SHA-256 equality, and retained all originals; no collisions occurred.
 
-Software validation covers actual onboard USB-result/telemetry equality, fixed
-record length, invalid/sentinel/status validation, native40/uint32 precision,
-STM UART/control priority and overflow, real ESP parser/socket forwarding, C→Python
-vectors, compact/raw schemas, metadata deduplication, slow display isolation,
-loopback reconnects/heartbeats, directory creation, migration hashes/collisions.
-The shared-core sanitizer suite, STM runtime/configuration suite and ESP host
-suite passed (72 Python tests plus C protocol/transport tests). Both firmware
-builds passed; the STM ELF layout check passed. STM usage is 36,552 bytes RAM
-and 128,776 bytes flash.
+## Delivery failure and bounded priority
 
-No physical robots were flashed or contacted. Sustained Wi-Fi packet delivery,
-UART faults, RF timing and stationary metric accuracy still need operator tests.
-Queues remain4 records per STM sink and8 on ESP; every association gets a publish
-attempt ahead of its raw frame, but a saturated/disconnected transport can drop
-records, with existing counters. At1Hz this adds310 UART bytes/s (~2.7% of115200
-baud8N1 capacity), not another raw UWB frame or a new blocking radio operation.
+The bridge previously captured `now` before UART reception, but timestamped a
+completed telemetry record inside reception. A millisecond tick crossing made
+`now - queued_at` underflow as uint32, treating a fresh record as almost 49 days
+old and discarding it before TCP transmission. `UWBSTAT` was queued after the
+expiry check, so transport reports could arrive while UWB records disappeared.
+This mechanism is reproduced in the actual bridge owner test by advancing the
+clock during fragmented UART input; refreshing time before expiry fixes it.
+It explains missing records without CRC/UART errors. Physical confirmation is
+still required; the existing capture alone cannot prove which records were lost.
+
+There were also independent starvation paths: STM32 runtime queues admitted raw
+records and TDoA with equal priority, and the UART telemetry slot waited for the
+mixed control/debug FIFO to become empty. Runtime and bridge queues now let TDoA,
+ranges and paired observations evict an optional record when full, retaining FIFO
+order among survivors. Optional traffic cannot displace observations. UART control
+responses take precedence over telemetry, which precedes optional LOG/DATA.
+Partially transmitted bridge lines cannot be replaced or have disconnect notices
+spliced into them. Queues remain four per STM sink and eight on ESP; the wire codec,
+radio mathematics and USB verbosity behavior are unchanged. Five 310-byte records
+per second consume about 13.5% of 115200-baud 8N1 capacity, so larger queues are not
+needed to sustain this experiment's nominal load.
+
+Counter interpretation:
+
+- STM32 `TLM STATUS drops=USB/WIFI` reports independent runtime sink losses.
+  The USB queue drains only through `TLM NEXT`; an unused/full USB queue is expected.
+- STM32 `uart_drops` reports records accepted by the pending UART slot then
+  expired/purged, separately from runtime Wi-Fi queue loss and UART errors.
+- ESP32 `UWBSTAT dropped` / compact `bridge_dropped` reports bridge queue
+  eviction, expiry, disconnected arrivals and session purge. It is not an STM32
+  queue counter. Optional eviction can increase it under intentional overload.
+- Full-stream gaps include optional raw/summary records; assess observation
+  delivery with ref/fol progress during a stable connected interval too.
+
+Software validation includes the shared-core sanitizer suite, STM32 runtime and
+UART/console suites, and ESP32 C/Python host suite. Dedicated tests exercise ten
+simulated minutes of saturated optional traffic with valid/invalid observations,
+unconsumed USB, UART HAL_BUSY, control priority, uint32 wrap, full-essential
+queues, fragmented input, partial TCP lines, socket backpressure and reconnects.
+An end-to-end fixture feeds C-encoded records through the actual C bridge parser,
+owner loop and TCP socket into the Python collector, checking every status in
+compact/raw output across reconnects. It also compares codec source/header bytes
+with sibling STM32 and canonical LPS checkouts when available. Existing tests
+check sentinel rejection, native40 precision, old wire versions and compact/raw
+schemas. No physical robots were flashed or contacted by these tests.
+
+## Hardware acceptance after operator flashing
+
+1. Build using the commands above and flash **both** STM32 and ESP32 with the
+   listed operator commands. Do not mass-erase STM32 configuration sectors. No ALR
+   update is required for this transport fix.
+2. Inspect `show`, `peer list`, `hybrid status` and `tlm status`. Confirm address
+   `0x8d`, reference `0x84`, follower `0x85`, enabled peers, role RLR,
+   `mode hybrid_static`, `wifi on`, `tlm on`, `telemetry_ms 1000`. Keep the RLR
+   stationary; use `off` then `on` after placement to reacquire its rate. Record
+   counters after the collector connects, since disconnected losses are expected.
+3. Run a ten-minute compact capture (or stop manually with Ctrl-C):
+
+   ```sh
+   cd ~/Documents/epuck-esp32
+   timeout --signal=INT 600s python3 tools/uwb_collect.py --robot 192.168.1.141:3333 --no-live
+   ```
+
+4. Confirm initial unavailable observations retain `status` and null `dd_mm` /
+   `dt_dtu`; stationary AVAILABLE records should have numeric signed `dd_mm`.
+   To exercise NO_RATE deterministically, separately capture ordinary `mode hybrid`
+   (after safe RF off); restore `hybrid_static` and reacquire while stationary.
+   Do not expect metric observations in ordinary hybrid.
+5. Repeat `tlm status` during capture. After initial draining, healthy Wi-Fi
+   depth should not remain pinned at four; Wi-Fi/UART/bridge drop counts should
+   not grow continuously at nominal load. USB drops may keep growing without
+   `TLM NEXT`. Check ref/fol progress and observed counts across the sustained
+   interval, along with corruption/UART errors. Disconnect/reconnect the collector
+   and verify observations resume without changing verbosity or consuming USB.
+6. Repeat with `--raw` (or `--debug`), and verify `kind:telemetry` rows include
+   `type:tdoa` plus `hybrid_rx` legacy frames and summaries. Repeat with USB
+   unplugged and with verbosity quiet/full; essential Wi-Fi delivery should
+   continue. Raw diagnostics are best effort under actual transport overload.
+
+Both native firmware builds and STM32 configuration-sector ELF validation passed.
+Physical UART/Wi-Fi delivery, RF timing and stationary measurement accuracy remain
+operator acceptance work; software tests do not establish hardware success.

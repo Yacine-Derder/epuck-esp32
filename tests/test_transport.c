@@ -26,7 +26,7 @@ int uart_read_bytes(int uart,void *buffer,unsigned length,int ticks) {
  if(mock_input) { unsigned n=(unsigned)strlen(mock_input);if(n>length)n=length;memcpy(buffer,mock_input,n);mock_input+=n;if(!*mock_input)mock_input=NULL;return (int)n; }
  return mock_uart_read;
 }
-int uart_tx_chars(int uart,const char *bytes,unsigned length) { (void)uart;(void)bytes; assert(length); ++mock_writes; return mock_uart_write; /* partial FIFO write */ }
+int uart_tx_chars(int uart,const char *bytes,unsigned length) { (void)uart;(void)bytes; assert(length); ++mock_writes; return mock_uart_write>0&&(unsigned)mock_uart_write>length?(int)length:mock_uart_write; /* partial FIFO write */ }
 int uart_flush_input(int uart) { (void)uart; return 0; }
 int gpio_set_level(int pin,int level) { (void)pin;(void)level; return 0; }
 uint32_t esp_random(void) { static uint32_t value=1; return value++; }
@@ -99,6 +99,43 @@ static void reason_tests(void) {
  disconnect_client("partial_record",0);
  char partial[64]={0};assert(recv(peer,partial,sizeof(partial),0)==3 && memcmp(partial,"DAT",3U)==0);
  assert(recv(peer,partial,sizeof(partial),0)==0);close(peer); /* Never splice DISCONNECT into the partial record. */
+}
+static void priority_tests(void) {
+ int peer=attach("aabbccddaabbccdd");mock_connected=1;
+ memset(&telemetry_out,0,sizeof(telemetry_out));
+ mulTelemetry_t observation={.type=mulTlmTdoa,.node=141,.peer=133,.radio=2,.mode=5,.role=2,.epoch=99,.ratePolicy=1,.legacySlotMs=500,
+ .tdoa={.reference=132,.follower=133,.status=4,.clockValid=1,.rateState=1,.ratePpb=0,.tdoaDtu=-332,.rangeDifferenceMm=-1558}};
+ char line[MUL_TLM_LINE];
+ /* Cross uint32 wrap while the optional queue is saturated every second. */
+ mock_time=UINT32_MAX-5000U;
+ for(unsigned cycle=0;cycle<600;cycle++) {
+   mock_time+=1000;last_telemetry_stats=mock_time;
+   mulTelemetry_t summary={.type=mulTlmSummary,.node=141,.peer=133,.radio=2,.mode=5,.role=2,.epoch=99};
+   assert(mulTelemetryEncode(line,sizeof(line),&summary));
+   for(unsigned i=0;i<BRIDGE_SLOTS;i++)uart_record(line);
+   mulTelemetry_t r=observation;r.sequence=cycle;
+   if(cycle%2){r.tdoa.status=1;r.tdoa.rateState=0;r.tdoa.ratePpb=INT32_MIN;r.tdoa.tdoaDtu=INT32_MIN;r.tdoa.rangeDifferenceMm=INT32_MIN;}
+   assert(mulTelemetryEncode(line,sizeof(line),&r));
+   uint32_t drops=telemetry_drops;uart_record(line);
+   assert(telemetry_out.count==BRIDGE_SLOTS&&telemetry_drops==drops+1);
+   for(unsigned i=0;i<BRIDGE_SLOTS;i++) {
+     owner_once();char output[512]={0};
+     assert(recv(peer,output,sizeof(output),MSG_DONTWAIT)==310);
+     if(i==BRIDGE_SLOTS-1)assert(!memcmp(output,line,309));
+   }
+ }
+ for(unsigned i=0;i<BRIDGE_SLOTS;i++)uart_record(line);
+ unsigned tail=telemetry_out.tail;uint32_t drops=telemetry_drops;
+ queue_telemetry("UWBSTAT optional",0);assert(telemetry_drops==drops+1&&telemetry_out.tail==tail);
+ uart_record(line);assert(telemetry_drops==drops+2);
+ disconnect_client("test_cleanup",0);close(peer);
+ /* Never evict a partial optional line or splice a disconnect notice into it. */
+ peer=attach("abababababababab");queue_telemetry("UWBSTAT partial",0);
+ assert(send(client,telemetry_out.data[telemetry_out.tail],3,send_flags())==3);bridge_advance(&telemetry_out,3);
+ for(unsigned i=1;i<BRIDGE_SLOTS;i++)queue_telemetry("UWBSTAT optional",0);
+ uart_record(line);assert(telemetry_out.offset==3&&!strncmp(telemetry_out.data[telemetry_out.tail],"UWBSTAT partial",14));
+ disconnect_client("partial_telemetry",0);char partial[512];assert(recv(peer,partial,sizeof(partial),0)==3);assert(recv(peer,partial,sizeof(partial),0)==0);close(peer);
+ puts("600s priority/invalid observations/uint32 wrap/full queue/partial line protection passed");
 }
 static void uwb_telemetry_tests(void) {
  int peer=attach("aabbccddaabbccdd");mulTelemetry_t r={.type=mulTlmRange,.node=0x10,.peer=0x11,.radio=2,.mode=1,.role=1,.epoch=1,.rawMm=1234};char line[MUL_TLM_LINE];
@@ -181,6 +218,6 @@ int main(void) {
  listener=socket(AF_INET,SOCK_STREAM,0); assert(listener>=0); assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
  if(!setjmp(stop_loop)) transport_task(NULL);
  assert(client==-1 && uart_out.count==1); close(peer); close(listener); listener=-1;
- reason_tests();uwb_telemetry_tests();
+ reason_tests();uwb_telemetry_tests();priority_tests();
  puts("PASS: disconnect diagnostics, nonblocking notification, real transport session filtering, control/output overflow, slow-client loss, Wi-Fi/UART faults and nonblocking partial writes");
 }

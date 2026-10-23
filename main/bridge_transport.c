@@ -29,6 +29,7 @@ static int uart_port, led_gpio, listener=-1, client=-1;
 static bridge_parser_t tcp_parser, uart_parser;
 static bridge_queue_t uart_out, tcp_out, telemetry_out;
 static uint32_t telemetry_at[BRIDGE_SLOTS],telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_high,last_telemetry_stats;
+static unsigned char telemetry_essential[BRIDGE_SLOTS];
 static char session[17];
 static unsigned ready;
 static uint32_t opened_at, last_progress, led_until;
@@ -121,16 +122,36 @@ static void accept_client(uint32_t now)
   char record[64]; snprintf(record,sizeof(record),"OPEN %s",session);
   if (!bridge_push(&uart_out,record)) disconnect_client("uart_tx_queue_full",0);
 }
+/* Bounded FIFO with observation admission priority. Never replace a partly
+ * transmitted line; keep original sequence order among retained records. */
+static void queue_telemetry(const char *line,unsigned essential) {
+  bridge_queue_t *q=&telemetry_out;
+  if(q->count==BRIDGE_SLOTS) {
+    unsigned victim=0;
+    if(essential) {
+      while(victim<q->count && (telemetry_essential[(q->tail+victim)%BRIDGE_SLOTS] ||
+            (victim==0 && q->offset)))victim++;
+    }
+    if(!essential || victim==q->count){telemetry_drops++;return;}
+    for(unsigned i=victim;i+1<q->count;i++) {
+      unsigned dst=(q->tail+i)%BRIDGE_SLOTS,src=(q->tail+i+1)%BRIDGE_SLOTS;
+      memcpy(q->data[dst],q->data[src],BRIDGE_LINE);q->length[dst]=q->length[src];
+      telemetry_at[dst]=telemetry_at[src];telemetry_essential[dst]=telemetry_essential[src];
+    }
+    q->head=(q->head+BRIDGE_SLOTS-1)%BRIDGE_SLOTS;q->count--;telemetry_drops++;
+  }
+  telemetry_at[q->head]=now_ms();telemetry_essential[q->head]=(unsigned char)essential;
+  if(!bridge_push(q,line))telemetry_drops++;
+  if(q->count>telemetry_high)telemetry_high=q->count;
+}
 static void uart_record(const char *line)
 {
   char expected[64];
   if(strncmp(line,"UWB1 ",5)==0||strncmp(line,"UWB2 ",5)==0||strncmp(line,"UWB3 ",5)==0) {
     mulTelemetry_t record;
     if(!mulTelemetryDecode(line,&record)){telemetry_corrupt++;return;}
-    if(client<0||!ready||telemetry_out.count==BRIDGE_SLOTS){telemetry_drops++;return;}
-    telemetry_at[telemetry_out.head]=now_ms();
-    if(!bridge_push(&telemetry_out,line))telemetry_drops++;
-    if(telemetry_out.count>telemetry_high)telemetry_high=telemetry_out.count;
+    if(client<0||!ready){telemetry_drops++;return;}
+    queue_telemetry(line,record.type==mulTlmTdoa||record.type==mulTlmRange||record.type==mulTlmObservation);
     return;
   }
   if (client<0) return;
@@ -228,8 +249,7 @@ static void transport_task(void *argument)
       char stats[192];last_telemetry_stats=now;
       snprintf(stats,sizeof(stats),"UWBSTAT version=1 dropped=%" PRIu32 " corrupt=%" PRIu32 " uart_errors=%" PRIu32 " depth=%u high=%" PRIu32,
         telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_out.count,telemetry_high);
-      telemetry_at[telemetry_out.head]=now;
-      if(!bridge_push(&telemetry_out,stats))telemetry_drops++;
+      queue_telemetry(stats,0);
     }
     /* A partially sent line must finish before switching queue. Otherwise all
      * safety/control replies take precedence over optional telemetry. */
