@@ -89,7 +89,7 @@ class CompactLog:
             return
         event = row['type']
         # Raw packets/peer tables are deliberately omitted from routine experiments.
-        if event not in ('tdoa', 'range', 'summary') and not row.get('missing'):
+        if event not in ('tdoa', 'tdoa_vector', 'range', 'summary') and not row.get('missing'):
             return
         sid = self.session(row)
         base = dict(t=t, s=sid)
@@ -98,7 +98,13 @@ class CompactLog:
         if row.get('sequence_status') in ('duplicate', 'old'):
             self.write(dict(base, type='ordering', state=row['sequence_status'], seq=row['sequence']))
             return
-        if event == 'tdoa':
+        if event == 'tdoa_vector':
+            self.write(dict(base, type='tdoa_vector', cycle=row['cycle'], u_ms=row['uptime_ms'],
+                            reference_node=row['reference_node'], alr_ids=row['alr_ids'],
+                            schedule_revision=row['schedule_revision'], schedule_fingerprint=row['schedule_fingerprint'],
+                            slot_ms=row['slot_ms'], cycle_ms=row['cycle_ms'], rate_policy=row['rate_policy'],
+                            seen_mask=row['seen_mask'], valid_mask=row['valid_mask'], followers=row['followers']))
+        elif event == 'tdoa':
             roster = (row['reference_node'], row['follower_node'], row['rate_policy'], row['slot_ms'])
             if self.rosters.get(sid) != roster:
                 self.rosters[sid] = roster

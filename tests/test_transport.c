@@ -115,6 +115,11 @@ static void priority_tests(void) {
    for(unsigned i=0;i<BRIDGE_SLOTS;i++)uart_record(line);
    mulTelemetry_t r=observation;r.sequence=cycle;
    if(cycle%2){r.tdoa.status=1;r.tdoa.rateState=0;r.tdoa.ratePpb=INT32_MIN;r.tdoa.tdoaDtu=INT32_MIN;r.tdoa.rangeDifferenceMm=INT32_MIN;}
+   if(cycle%3==2) {
+     r.type=mulTlmVector;r.vector=(mulMultiCycle_t){.cycle=cycle,.count=3,.ids={132,133,134},.revision=1,.fingerprint=7,.slotMs=10,.periodMs=1000,.seenMask=3,.validMask=2,
+       .values={{.rangeDifferenceMm=-1558,.tdoaDtu=-332,.status=4,.clockValid=1,.rateState=1},
+                {.rangeDifferenceMm=INT32_MIN,.tdoaDtu=INT32_MIN,.status=0,.reason=1}}};
+   }
    assert(mulTelemetryEncode(line,sizeof(line),&r));
    uint32_t drops=telemetry_drops;uart_record(line);
    assert(telemetry_out.count==BRIDGE_SLOTS&&telemetry_drops==drops+1);

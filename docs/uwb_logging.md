@@ -300,3 +300,32 @@ advertised frames; use `tools/uwb_hybrid.py ... --slot 10` for10ms replay. The
 collector itself needs no slot flag and performs no robot configuration. Compact
 roster rows expose active `slot_ms`; old compact captures without this optional
 field remain readable. No hardware timing/accuracy is inferred from software tests.
+
+### Multi-ALR vectors
+
+UWB3 type8 (`tdoa_vector`) is additive; type7 (`tdoa`) and all existing logs retain
+their interpretation. The collector accepts a coherent vector at approximately
+1Hz and stores each follower's identity, slot, signed millimeter difference,
+validity/status/reason/clock/rate. Unavailable numeric measurements are JSON null.
+Each compact vector includes its ordered roster, cycle, schedule revision/hash,
+spacing, period, seen/valid masks and receiver uptime, so partial vectors remain
+self-describing. `--raw` also keeps optional type9 `multi_rx` packet evidence.
+The bridge prioritizes vectors over raw packets and summaries in the same bounded
+queues. Ordinary `hybrid` reports no-rate; `hybrid_static` is stationary opt-in.
+
+Reproducible host end-to-end check, without devices:
+
+```
+cd ../epuck-stm32
+MUL_MULTI_TRACE=/tmp/multi.uart sh tests/runtime_config/run.sh
+cd ../epuck-esp32
+python3 tools/verify_multi_replay.py /tmp/multi.uart
+sh tests/run_host.sh
+```
+
+The first command drives real STM32 adapter/math/queues using synthetic hardware
+registers and geometry for N2/3/4/8. The replay passes its80 real UART vector
+records through the ESP owner, loopback TCP reconnect and compact logger, and
+compares all follower values and identities. Neither command accesses hardware.
+The optional live scalar statistics still describe the legacy single-pair stream;
+use the vector JSONL for multi-ALR analysis.

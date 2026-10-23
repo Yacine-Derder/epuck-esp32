@@ -6,8 +6,9 @@
 #include <time.h>
 int main(int argc,char **argv) {
  assert(argc==2);FILE *input=fopen(argv[1],"r");assert(input);
- char records[20][MUL_TLM_LINE+1];
- for(unsigned i=0;i<20;i++)assert(fgets(records[i],sizeof(records[i]),input));
+ char records[128][MUL_TLM_LINE+1];unsigned recordCount=0;
+ while(recordCount<128&&fgets(records[recordCount],sizeof(records[0]),input))recordCount++;
+ assert(recordCount>0&&feof(input));
  fclose(input);
  listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);
  struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
@@ -24,12 +25,12 @@ int main(int argc,char **argv) {
      uart_record(response);sent=0;
    }
    if(client>=0&&ready&&step%10==0) {
-     assert(sent<20);mock_input=records[sent++];
+     assert(sent<recordCount);mock_input=records[sent++];
      owner_once();owner_once(); /* fragmented UART and clock advancement */
      assert(!mock_input);
      for(unsigned i=0;i<BRIDGE_SLOTS+1&&(telemetry_out.count||tcp_out.count);i++)owner_once();
      assert(!telemetry_out.count&&!tcp_out.count);
-     if(sent==20){disconnect_client("test_reconnect",0);completed++;}
+     if(sent==recordCount){disconnect_client("test_reconnect",0);completed++;}
    }
    const struct timespec pause={.tv_nsec=10000000};nanosleep(&pause,NULL);
  }

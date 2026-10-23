@@ -5,7 +5,7 @@ static void put(uint8_t *p,uint64_t v,unsigned n){for(unsigned i=0;i<n;i++)p[i]=
 static uint64_t get(const uint8_t *p,unsigned n){uint64_t v=0;for(unsigned i=0;i<n;i++)v|=(uint64_t)p[i]<<(8*i);return v;}
 uint16_t mulTelemetryCrc(const uint8_t *p,size_t n){uint16_t c=0xffff;for(size_t i=0;i<n;i++){c^=(uint16_t)p[i]<<8;for(unsigned j=0;j<8;j++)c=(uint16_t)((c<<1)^((c&0x8000)?0x1021:0));}return c;}
 static bool valid(const mulTelemetry_t *r){
- if(!r||r->type<1||r->type>7||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
+ if(!r||r->type<1||r->type>9||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
  if(r->type==mulTlmHybridRx&&((r->legacyLength!=34&&r->legacyLength!=74&&r->legacyLength!=84)||
     r->legacyRx>UINT64_C(0xffffffffff)||r->ratePolicy>1||
     (r->legacySlotMs!=500&&r->legacySlotMs!=50&&r->legacySlotMs!=10)))return false;
@@ -22,6 +22,31 @@ static bool valid(const mulTelemetry_t *r){
     (available&&(!t->clockValid||t->rateState!=1))||
     (available?(t->tdoaDtu==INT32_MIN||t->rangeDifferenceMm==INT32_MIN):
       (t->tdoaDtu!=INT32_MIN||t->rangeDifferenceMm!=INT32_MIN)))return false;
+ }
+ if(r->type==mulTlmVector||r->type==mulTlmMultiRx) {
+  if(r->radio!=2||r->role!=2||(r->mode!=4&&r->mode!=5)||r->ratePolicy!=(r->mode==5))return false;
+ }
+ if(r->type==mulTlmMultiRx&&((r->legacyLength!=40&&r->legacyLength!=80&&r->legacyLength!=90)||
+    r->legacyRx>UINT64_C(0xffffffffff)||!r->scheduleRevision||
+    (r->legacySlotMs!=10&&r->legacySlotMs!=50&&r->legacySlotMs!=500)))return false;
+ if(r->type==mulTlmVector) {
+  const mulMultiCycle_t *v=&r->vector;
+  if(v->count<2||v->count>8||!v->revision||v->periodMs!=1000||
+    (v->slotMs!=10&&v->slotMs!=50&&v->slotMs!=500)||(v->count-1)*v->slotMs+20>630||
+    v->referenceRx>UINT64_C(0xffffffffff)||v->seenMask>>v->count||v->validMask>>v->count||
+    (v->validMask&1)||v->validMask&~v->seenMask)return false;
+  for(unsigned i=0;i<8;i++) {
+   if(i>=v->count){if(v->ids[i])return false;continue;}
+   if(v->ids[i]==255||v->ids[i]==r->node)return false;
+   for(unsigned j=0;j<i;j++)if(v->ids[i]==v->ids[j])return false;
+   if(!i)continue;
+   const mulMultiValue_t *x=&v->values[i-1];bool available=x->status==4;
+   if(x->status>4||x->reason>9||x->clockValid>1||x->rateState>2||
+     (!r->ratePolicy&&x->rateState)||available!=((v->validMask&(1u<<i))!=0)||
+     (available&&(!x->clockValid||x->rateState!=1||x->reason||!(v->seenMask&1)))||
+     (available?(x->rangeDifferenceMm==INT32_MIN||x->tdoaDtu==INT32_MIN):
+       (x->rangeDifferenceMm!=INT32_MIN||x->tdoaDtu!=INT32_MIN||!x->reason)))return false;
+  }
  }
  for(unsigned i=0;i<6;i++)if(r->stamps[i]>UINT64_C(0xffffffffff))return false;
  return true;
@@ -53,6 +78,23 @@ bool mulTelemetryEncode(char *line,size_t capacity,const mulTelemetry_t *r){
   b[112]=t->delayState;b[113]=t->unknownComponents;b[114]=t->powerFlags;
   put(b+118,r->radioErrors,4);put(b+122,r->timeouts,4);put(b+126,r->txDropped,4);
  }
+ if(r->type==mulTlmVector) {
+  const mulMultiCycle_t *v=&r->vector;memset(b+40,0,110);b[2]=3;
+  put(b+40,v->cycle,4);put(b+44,v->fingerprint,4);put(b+48,v->revision,4);put(b+52,v->referenceRx,5);
+  put(b+57,v->slotMs,2);put(b+59,v->periodMs,2);b[61]=v->count;b[62]=v->seenMask;b[63]=v->validMask;
+  memcpy(b+64,v->ids,8);
+  for(unsigned i=0;i+1<v->count;i++) {
+   const mulMultiValue_t *x=&v->values[i];uint8_t *entry=b+72+10*i;
+   put(entry,(uint32_t)x->rangeDifferenceMm,4);put(entry+4,(uint32_t)x->tdoaDtu,4);
+   entry[8]=x->status|(x->clockValid<<3)|(x->rateState<<4);entry[9]=x->reason;
+  }
+  put(b+142,r->dropped,4);b[146]=r->depth>255?255:r->depth;b[147]=r->highWater>255?255:r->highWater;b[148]=r->ratePolicy;
+ }
+ if(r->type==mulTlmMultiRx) {
+  memset(b+40,0,110);b[2]=3;memcpy(b+40,r->legacyFrame,r->legacyLength);
+  put(b+130,r->legacyRx,5);put(b+135,r->captureAgeMs,2);b[137]=r->legacyLength;
+  put(b+138,r->legacySlotMs,2);put(b+140,r->scheduleFingerprint,4);put(b+144,r->scheduleRevision,4);b[148]=r->ratePolicy;
+ }
  put(b+150,mulTelemetryCrc(b,150),2);memcpy(line,b[2]==3?"UWB3 ":"UWB2 ",5);
  static const char hex[]="0123456789ABCDEF";for(unsigned i=0;i<152;i++){line[5+2*i]=hex[b[i]>>4];line[6+2*i]=hex[b[i]&15];}line[309]=0;return true;
 }
@@ -64,6 +106,31 @@ bool mulTelemetryDecode(const char *line,mulTelemetry_t *r){
  if(line[5+2*size]||b[0]!=0x4d||b[1]!=0x54||b[2]!=(unsigned)(line[3]-'0')||get(b+size-2,2)!=mulTelemetryCrc(b,size-2))return false;
  mulTelemetry_t d={.type=b[3],.node=b[4],.peer=b[5],.radio=b[6],.mode=b[7],.role=b[8],.flags=b[9],.remoteRadio=b[10],.quality=b[11]};
  d.sequence=(uint32_t)get(b+12,4);d.epoch=get(b+16,8);d.exchange=get(b+24,8);d.transaction=(uint32_t)get(b+32,4);d.uptimeMs=(uint32_t)get(b+36,4);
+ if(d.type==mulTlmVector) {
+  if(b[2]!=3||b[149]||b[61]<2||b[61]>8)return false;
+  mulMultiCycle_t *v=&d.vector;
+  v->cycle=(uint32_t)get(b+40,4);v->fingerprint=(uint32_t)get(b+44,4);v->revision=(uint32_t)get(b+48,4);
+  v->observedMs=d.uptimeMs;v->referenceRx=get(b+52,5);v->slotMs=(uint16_t)get(b+57,2);v->periodMs=(uint16_t)get(b+59,2);
+  v->count=b[61];v->seenMask=b[62];v->validMask=b[63];memcpy(v->ids,b+64,8);
+  for(unsigned i=0;i+1<v->count;i++) {
+   const uint8_t *entry=b+72+10*i;if(entry[8]&0xc0)return false;
+   mulMultiValue_t *x=&v->values[i];x->rangeDifferenceMm=signed32((uint32_t)get(entry,4));x->tdoaDtu=signed32((uint32_t)get(entry+4,4));
+   x->status=entry[8]&7;x->clockValid=(entry[8]>>3)&1;x->rateState=(entry[8]>>4)&3;x->reason=entry[9];
+  }
+  for(unsigned i=72+10*(v->count-1);i<142;i++)if(b[i])return false;
+  d.dropped=(uint32_t)get(b+142,4);d.depth=b[146];d.highWater=b[147];d.ratePolicy=b[148];
+  if(!valid(&d))return false;
+  *r=d;return true;
+ }
+ if(d.type==mulTlmMultiRx) {
+  if(b[2]!=3||b[149]||b[137]>90)return false;
+  d.legacyLength=b[137];memcpy(d.legacyFrame,b+40,d.legacyLength);d.legacyRx=get(b+130,5);
+  d.captureAgeMs=(uint16_t)get(b+135,2);d.legacySlotMs=(uint16_t)get(b+138,2);
+  d.scheduleFingerprint=(uint32_t)get(b+140,4);d.scheduleRevision=(uint32_t)get(b+144,4);d.ratePolicy=b[148];
+  for(unsigned i=d.legacyLength;i<90;i++)if(b[40+i])return false;
+  if(!valid(&d))return false;
+  *r=d;return true;
+ }
  if(d.type==mulTlmTdoa) {
   if(b[2]!=3||b[71])return false;
   for(unsigned i=96;i<104;i++)if(b[i])return false;

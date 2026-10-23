@@ -151,7 +151,7 @@ static void uart_record(const char *line)
     mulTelemetry_t record;
     if(!mulTelemetryDecode(line,&record)){telemetry_corrupt++;return;}
     if(client<0||!ready){telemetry_drops++;return;}
-    queue_telemetry(line,record.type==mulTlmTdoa||record.type==mulTlmRange||record.type==mulTlmObservation);
+    queue_telemetry(line,record.type==mulTlmVector||record.type==mulTlmTdoa||record.type==mulTlmRange||record.type==mulTlmObservation);
     return;
   }
   if (client<0) return;

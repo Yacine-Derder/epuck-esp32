@@ -18,7 +18,12 @@ try:
 except ModuleNotFoundError:
     from tools.uwb_logging import CompactLog, LiveMonitor, DEFAULT_LOG_DIR, OLD_LOG_DIR, migrate_logs
 
-NAMES={1:'summary',2:'range',3:'event',4:'observation',5:'peer',6:'hybrid_rx',7:'tdoa'}
+try:
+    from uwb_multi import decode_multi
+except ModuleNotFoundError:
+    from tools.uwb_multi import decode_multi
+
+NAMES={1:'summary',2:'range',3:'event',4:'observation',5:'peer',6:'hybrid_rx',7:'tdoa',8:'tdoa_vector',9:'multi_rx'}
 
 def decode(line):
     if not ((line.startswith('UWB1 ') and len(line)==261) or (line.startswith(('UWB2 ','UWB3 ')) and len(line)==309)):
@@ -37,6 +42,8 @@ def decode(line):
              flags=data[9],remote_radio=data[10],quality=data[11],sequence=sequence,epoch=f'{epoch:016X}',exchange=f'{exchange:016X}',
              transaction=transaction,uptime_ms=uptime,raw_mm=raw,calibrated_mm=cal,
              raw_valid=bool(data[9]&1),calibration=bool(data[9]&2),calibrated_valid=bool(data[9]&4))
+    if data[3] in (8,9):
+        return decode_multi(data, out)
     if data[3]==7:
         ref_seq,fol_seq,dt,dd,rate=struct.unpack_from('<IIiii',data,40)
         ref,fol,status,clock,state,policy=data[60:66]

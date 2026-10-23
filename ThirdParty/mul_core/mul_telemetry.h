@@ -4,9 +4,10 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
+#include "mul_multi_receiver.h"
 #define MUL_TLM_BYTES 152u
 #define MUL_TLM_LINE 310u /* UWB2 + 304 hex + NUL; newline owned by transport */
-enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer,mulTlmHybridRx,mulTlmTdoa};
+enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer,mulTlmHybridRx,mulTlmTdoa,mulTlmVector,mulTlmMultiRx};
 enum {mulTlmRawValid=1,mulTlmCalibration=2,mulTlmCalValid=4,mulTlmStampValid=8,mulTlmTx=16};
 /* UWB3 type7: actual onboard association result, never an ALR-ALR range.
  * INT32_MIN remains the wire sentinel; consumers expose unavailable values null. */
@@ -19,6 +20,8 @@ typedef struct {
 } mulTdoaTelemetry_t;
 typedef struct {
  mulTdoaTelemetry_t tdoa;
+ mulMultiCycle_t vector;
+ uint32_t scheduleFingerprint,scheduleRevision;
  uint8_t type,node,peer,radio,mode,role,flags,remoteRadio,quality;
  uint32_t sequence,transaction,uptimeMs;
  uint64_t epoch,exchange;
@@ -27,7 +30,7 @@ typedef struct {
  uint16_t depth,highWater;
  uint32_t dropped,uartErrors,spiCycles,serviceCycles,gapCycles,clockHz;
  uint32_t radioErrors,timeouts,txDropped,modelVersion;uint64_t remoteEpoch;
- uint8_t legacyFrame[84],legacyLength,ratePolicy;
+ uint8_t legacyFrame[90],legacyLength,ratePolicy;
  uint64_t legacyRx;uint16_t captureAgeMs,legacySlotMs;
  uint32_t referenceGeneration,followerGeneration;
  uint64_t stamps[6]; /* ADS: t1..t6; event/observation: local marker, advertised previous TX */
