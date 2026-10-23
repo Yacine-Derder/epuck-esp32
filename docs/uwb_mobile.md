@@ -121,7 +121,7 @@ motion/clock/bias bounds need not be detectable from these same observations.
 Run from epuck-esp32:
 
 ```sh
-python3 tools/uwb_mobile.py captures/*-robot-*.jsonl --slot 500 \
+python3 tools/uwb_mobile.py ~/Documents/uwb_logs/*-raw.jsonl --slot 500 \
  --bounds /absolute/path/to/justified-bounds.json --output mobile-conditional.jsonl
 ```
 
@@ -150,7 +150,7 @@ hardware validation. Firmware hybrid_static remains the stationary baseline.
 No additional capture is needed to prove the observability limitation. No devices
 need reflashing for this offline prototype: STM f1047b3 already emits needed UWB3
 records when telemetry/Wi-Fi are enabled. Preserve settings/calibration and use
-tools/uwb_collect.py with the existing collector workflow. For an optional physical
+tools/uwb_collect.py --raw with the existing collector workflow. For an optional physical
 accuracy study, independently measured geometry/motion can supply validation truth;
 this does not require externally surveyed infrastructure in deployment. Establish
 metrology/clock-slew/motion bounds before claiming a conditional hardware envelope.

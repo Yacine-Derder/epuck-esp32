@@ -283,11 +283,16 @@ bounded optional queue. Control/session behavior is preserved. With Universal
 STM32 `wifi on`, `telemetry on`, and this ESP image, capture without motor commands:
 
 ```sh
-python3 tools/uwb_collect.py --robot 192.168.1.21:3333 --output captures
-python3 tools/uwb_tdoa.py captures/*-robot-*.jsonl --output observations.jsonl
+python3 tools/uwb_collect.py --robot 192.168.1.21:3333 --raw
+python3 tools/uwb_tdoa.py ~/Documents/uwb_logs/*-raw.jsonl --output observations.jsonl
 ```
 
-Repeat --robot for multiple boards. JSONL includes host reception time separately
+Without --raw the collector now defaults to compact experimental JSONL and live
+onboard TDoA statistics. See [the untethered RLR workflow](docs/uwb_logging.md) for
+firmware updates, hybrid_static configuration, null/valid semantics and migration.
+Logs default to ~/Documents/uwb_logs; --no-live disables the display.
+
+Repeat --robot for multiple boards. Raw JSONL includes host reception time separately
 from full40-bit UWB timestamps, epochs, raw/calibrated ranges and drop/reconnect
 information. Offline one-way arrival-clock fits do not establish global clock
 offsets; TDoA is missing_sync unless explicit external common-clock maps are

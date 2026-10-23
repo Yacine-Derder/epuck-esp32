@@ -228,3 +228,42 @@ check publication/clock/geometry and NO_RATE, reconstruct complete passive TWR,
 and reject wrong destinations, spoofed full IDs, duplicate/self/broadcast roles.
 Platform persistence and commands are subsequent integration work; these APIs
 alone do not make board roles runtime configurable or validate physical operation.
+
+### Onboard RLR TDoA telemetry (UWB3 type7)
+
+This additive record remains152 bytes (309 ASCII bytes,310 with newline), with
+unchanged common header0..39 and CRC16 at150..151. It contains the actual
+`mulLocalizationObserveNetwork` result, not a new estimator or an ALR-ALR range.
+Existing types1..6 retain their layouts and raw diagnostic frames.
+
+|Bytes|Type7 meaning (little endian)|
+|---|---|
+|40..47|Reference/follower sequences, u32 each|
+|48..59|TDoA DTU, distance difference mm, receiver rate ppb, i32 each|
+|60..65|Reference ID, follower ID, status, clock-valid, rate-state, stationary policy|
+|66..70|Native40 follower RX timestamp in receiver domain|
+|72..79|Combined STM USB/Wi-Fi queue drops and UART errors, u32 each|
+|80..87|Reference/follower acquisition generations, u32 each|
+|88..95|Queue depth/high, capture age ms, slot ms, u16 each|
+|104..114|Delay age u32, delay DTU/clock age u16, delay-state/unknown-components/power flags u8|
+|118..129|Radio errors, timeouts, UART telemetry TX drops, u32 each|
+
+Bytes71,96..103,115..117,130..149 must be zero. Header epoch identifies the local
+boot/radio session; exchange carries the follower relation epoch. Header uptime
+is the observation's coarse follower-capture uptime, not host time. Status0..4
+is no_relation/no_rate/stale_rate/inconsistent/available. Rate-state0..2 is
+unavailable/stationary/stale. Available requires stationary mode5, valid clock
+and rate, and non-sentinel results. Otherwise both results must be INT32_MIN;
+consumers expose null, never a sentinel distance. Physical uncertainty remains
+UNKNOWN even for an available stationary result. Native timestamps preserve40-bit
+wrap; sequences remain independent32-bit counters.
+
+Old ESP firmware rejects unknown type7; update both consumers. New decoders keep
+reading historical UWB1/2/3 types. No record size, UART queue or PHY change is
+required. Emission is bounded/best effort; transport drop counters remain relevant.
+
+For an authorized local-only integration, the exporter supports explicit
+`--allow-local REV DEST` to export a committed unpublished source without any
+push/fetch. The default still requires origin/master ancestry. UPSTREAM.json pins
+the exact commit and file hashes in either case; unpublished pins are available
+from the local canonical repository until the owner authorizes publication.

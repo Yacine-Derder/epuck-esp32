@@ -49,7 +49,7 @@ class Loopback(unittest.IsolatedAsyncioTestCase):
             if connections>=2:stop.set()
         listener=await asyncio.start_server(server,'127.0.0.1',0)
         output=io.StringIO();port=listener.sockets[0].getsockname()[1]
-        try:await asyncio.wait_for(collector.collect(f'127.0.0.1:{port}',output,stop),5)
+        try:await asyncio.wait_for(collector.collect(f'127.0.0.1:{port}',output,stop,raw=True),5)
         finally:listener.close();await listener.wait_closed()
         rows=[json.loads(x) for x in output.getvalue().splitlines()]
         self.assertGreaterEqual(sum(r['kind']=='telemetry' for r in rows),2,output.getvalue())

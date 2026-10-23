@@ -109,6 +109,14 @@ static void uwb_telemetry_tests(void) {
  char bad[MUL_TLM_LINE];memcpy(bad,line,sizeof(bad));bad[30]='?';uint32_t corrupt=telemetry_corrupt;uart_record(bad);assert(telemetry_corrupt==corrupt+1&&client>=0);
  bridge_parser_t parser={0};for(unsigned i=0;i<strlen(line);i++)assert(bridge_parse(&parser,(unsigned char)line[i],318)==0);
  assert(bridge_parse(&parser,'\n',318)==1&&mulTelemetryDecode(parser.data,&r));
+ memset(&telemetry_out,0,sizeof(telemetry_out));memset(&tcp_out,0,sizeof(tcp_out));
+ r=(mulTelemetry_t){.type=mulTlmTdoa,.node=141,.peer=133,.radio=2,.mode=5,.role=2,.epoch=99,.ratePolicy=1,.legacySlotMs=500,
+ .tdoa={.reference=132,.follower=133,.referenceSequence=3666,.followerSequence=3676,.status=4,.clockValid=1,.rateState=1,.ratePpb=-12,.tdoaDtu=-28,.rangeDifferenceMm=-131}};
+ assert(mulTelemetryEncode(line,sizeof(line),&r));mock_connected=1;mock_time=100;last_telemetry_stats=100;
+ uart_record(line);assert(telemetry_out.count==1);owner_once();
+ char forwarded[512]={0};ssize_t bytes=recv(peer,forwarded,sizeof(forwarded)-1,0);assert(bytes==310&&!memcmp(forwarded,line,309)&&forwarded[309]=='\n');
+ forwarded[309]=0;mulTelemetry_t decoded;assert(mulTelemetryDecode(forwarded,&decoded)&&decoded.tdoa.rangeDifferenceMm==-131&&decoded.tdoa.followerSequence==3676);
+ for(unsigned i=0;i<BRIDGE_SLOTS+2;i++)uart_record(line);assert(telemetry_out.count==BRIDGE_SLOTS);
  disconnect_client("test_cleanup",0);close(peer);assert(!telemetry_out.count);
  uart_record(line);assert(!telemetry_out.count);
  puts("UWB optional queue saturation/CRC/frame recovery/control isolation/disconnected purge passed");

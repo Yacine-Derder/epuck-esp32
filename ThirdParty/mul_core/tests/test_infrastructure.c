@@ -38,5 +38,15 @@ int main(void){
  assert(mulTelemetryEncode(line,sizeof(line),&r)&&!strncmp(line,"UWB3 ",5));
  assert(mulTelemetryDecode(line,&d)&&d.legacyLength==84&&d.legacyRx==MUL_TIMESTAMP_MASK&&d.captureAgeMs==15&&d.referenceGeneration==7&&d.legacySlotMs==50&&d.ratePolicy==1&&!memcmp(r.legacyFrame,d.legacyFrame,84));
  r.legacyLength=85;assert(!mulTelemetryEncode(line,sizeof(line),&r));
+ r=(mulTelemetry_t){.type=mulTlmTdoa,.node=141,.peer=133,.radio=2,.mode=5,.role=2,.epoch=123,.exchange=77,
+  .ratePolicy=1,.legacySlotMs=500,.tdoa={.reference=132,.follower=133,.referenceSequence=UINT32_MAX,.followerSequence=0,
+  .rx=MUL_TIMESTAMP_MASK,.status=4,.clockValid=1,.rateState=1,.tdoaDtu=-28,.rangeDifferenceMm=-131,.ratePpb=-1234}};
+ assert(mulTelemetryEncode(line,sizeof(line),&r)&&strlen(line)==309&&!strncmp(line,"UWB3 ",5));
+ assert(mulTelemetryDecode(line,&d)&&d.tdoa.tdoaDtu==-28&&d.tdoa.rangeDifferenceMm==-131&&d.tdoa.referenceSequence==UINT32_MAX&&d.tdoa.followerSequence==0&&d.tdoa.rx==MUL_TIMESTAMP_MASK);
+ for(unsigned i=0;i<309;i++){char c=line[i];line[i]=0;assert(!mulTelemetryDecode(line,&d));line[i]=c;}
+ r.tdoa.rangeDifferenceMm=INT32_MIN;assert(!mulTelemetryEncode(line,sizeof(line),&r));
+ r.mode=4;r.ratePolicy=0;r.tdoa.rateState=0;r.tdoa.ratePpb=INT32_MIN;r.tdoa.tdoaDtu=INT32_MIN;
+ for(unsigned status=0;status<4;status++){r.tdoa.status=status;assert(mulTelemetryEncode(line,sizeof(line),&r)&&mulTelemetryDecode(line,&d)&&d.tdoa.status==status&&d.tdoa.rangeDifferenceMm==INT32_MIN);}
+ r.tdoa.status=4;assert(!mulTelemetryEncode(line,sizeof(line),&r));
  puts("Infrastructure: telemetry CRC/truncation/width, beacon codec, domain/epoch/wrap/drift/out-of-order tests passed");
 }
