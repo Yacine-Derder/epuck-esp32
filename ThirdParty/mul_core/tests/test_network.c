@@ -93,7 +93,8 @@ int main(void) {
    assert(first.diagnostics.reason[mulHybridScheduleMismatch]==2);
    assert(!mulEncodeScheduledPacket(frame,a.addresses[0],11,0,20));
  }
- a.slotMs=20;assert(!mulNetworkValid(&a));
+ a.slotMs=20;assert(mulNetworkValid(&a)); // Numerical math context, not a legacy wire advertisement.
+ assert(!mulSlotValid(0)&&!mulSlotValid(65536));
  puts("Explicit roster: swapped/arbitrary IDs, simultaneous relation, clock, signed geometry, NO_RATE, strict TWR endpoints and independent receiver contexts passed");
  return 0;
 }

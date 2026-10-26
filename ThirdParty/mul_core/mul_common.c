@@ -110,7 +110,7 @@ uint8_t mulScheduleTag(uint16_t slot) {return slot==10?0x40:slot==50?0x80:slot==
 uint16_t mulScheduleSlot(uint8_t type) {return (type>>6)==1?10:(type>>6)==2?50:(type>>6)==3?500:0;}
 bool mulEncodeScheduledPacket(uint8_t frame[MUL_TEST_FRAME_LENGTH],const uint8_t source[8],
  uint32_t sequence,uint64_t timestamp,uint16_t slot) {
- if(!frame||!source||!mulSlotValid(slot))return false;
+ if(!frame||!source||!mulScheduleTag(slot))return false;
  mulEncodeTestPacket(frame,source,sequence,timestamp);frame[24]|=mulScheduleTag(slot);return true;
 }
 bool mulDecodeTestPacket(const uint8_t *frame, size_t length, mulTestPacket_t *packet)
@@ -140,11 +140,11 @@ bool mulDecodeTestPacket(const uint8_t *frame, size_t length, mulTestPacket_t *p
   return true;
 }
 
-uint16_t mulSlotToleranceMs(uint16_t ms) {return ms/10<2?2:ms/10;}
+uint16_t mulSlotToleranceMs(uint16_t ms) {unsigned t=ms/10<2?2:ms/10;return (uint16_t)(t<ms?t:ms?(unsigned)ms-1u:0u);}
 int64_t mulSlotMinDtu(uint16_t ms) {return (ms-mulSlotToleranceMs(ms))*INT64_C(63897600);}
 int64_t mulSlotMaxDtu(uint16_t ms) {return (ms+mulSlotToleranceMs(ms))*INT64_C(63897600);}
 
-bool mulSlotValid(uint32_t ms) {return ms==10||ms==50||ms==500;}
+bool mulSlotValid(uint32_t ms) {return ms>0&&ms<=UINT16_MAX;}
 uint16_t mulNetworkSlotMs(const mulNetwork_t *n) {return n&&n->slotMs?n->slotMs:MUL_FOLLOWER_SLOT_MS;}
 uint32_t mulNetworkPairMaxAgeMs(const mulNetwork_t *n) {return mulNetworkSlotMs(n)+200u;}
 bool mulNetworkScheduleMatches(const mulNetwork_t *n,uint16_t advertised) {

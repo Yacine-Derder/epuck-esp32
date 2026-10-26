@@ -7,15 +7,23 @@ def decode_clock(data, out):
     rx = int.from_bytes(data[45:50], 'little')
     sequence, applied, fitted, rms, rejected, sigma, age = struct.unpack_from('<IiiIIII', data, 50)
     ref, method, window, count, inliers, status, ready, used, fallback, compensated = data[78:88]
+    version = 1 if data[88] == 0 else data[88]
+    period = out['transaction'] or 1000
+    if (version not in (1, 2) or data[89] or any(data[92 if version == 2 else 88:150])
+            or (version == 2 and not 10 <= period <= 2000)):
+        raise ValueError('clock version/period/reserved')
+    capture_age = int.from_bytes(data[90:92], 'little') if version == 2 else None
     if (data[2] != 3 or data[6] != 2 or data[8] != 2 or data[7] not in (4, 5)
             or ref == 255 or ref == data[4] or method > 1 or not 8 <= window <= 32
             or count > window or inliers > count or status > 3 or ready > 1 or used > 1
             or fallback > 3 or compensated > 1 or abs(applied) > 200000 or abs(fitted) > 200000
-            or (used and (not method or not ready or status != 2 or fallback)) or any(data[88:150])):
+            or (used and (not method or not ready or status != 2 or fallback))):
         raise ValueError('clock envelope')
     for key in ('raw_mm', 'calibrated_mm', 'raw_valid', 'calibration', 'calibrated_valid'):
         out.pop(key)
-    out.update(reference_tx_dtu=tx, local_rx_dtu=rx, reference_sequence=sequence, reference_node=ref,
+    out.update(clock_record_version=version, sample_period_ms=period if version == 2 else None,
+               capture_age_ms=capture_age, capture_valid=None if capture_age is None else capture_age <= 15,
+               reference_tx_dtu=tx, local_rx_dtu=rx, reference_sequence=sequence, reference_node=ref,
                applied_ppb=applied, fitted_ppb=fitted, residual_rms_dtu=rms, rejected_samples=rejected,
                fit_sigma_ppb=None if sigma == 0xffffffff else sigma, mapping_age_ms=age,
                clock_estimator=('median', 'regression')[method], clock_window=window,

@@ -5,7 +5,7 @@ bool mulDownlinkRelationAtSlot(const mulNetwork_t *network,uint16_t offsetMs,con
   uint32_t nowMs,uint32_t captureAgeMs,int64_t *txSeparation)
 {
   pair->clockRelationAvailable=false; pair->geometricTdoaAvailable=false;
-  if (!offsetMs||offsetMs>600||!r->available || captureAgeMs>15 ||
+  if (!offsetMs||offsetMs>(r->period10ms?r->period10ms*10u-1u:600u)||!r->available || captureAgeMs>15 ||
       !mulObservationFresh(&pair->reference,nowMs) || !mulObservationFresh(&pair->follower,nowMs) ||
       mulNetworkRole(network,pair->reference.sourceClock)!=mulAlrReference ||
       mulNetworkRole(network,pair->follower.sourceClock)!=mulAlrFollower ||

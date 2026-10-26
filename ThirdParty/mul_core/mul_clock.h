@@ -24,6 +24,7 @@ typedef enum {
 
 typedef struct {
   bool hasBaseline;
+  uint16_t periodMs; // Occupies former padding;0 retains legacy1000ms.
   uint32_t sequence;
   uint64_t referenceTx;
   uint64_t localRx;

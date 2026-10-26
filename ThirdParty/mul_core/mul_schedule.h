@@ -7,6 +7,8 @@
 #define MUL_SCHEDULE_VERSION 1u
 #define MUL_PROFILE_LEGACY 1u
 #define MUL_PROFILE_MULTI 2u
+#define MUL_PROFILE_EXPERIMENTAL 3u
+#define MUL_RANGING_ALR_ALR 1u
 #define MUL_SCHEDULE_CYCLE_MS 1000u
 #define MUL_DATA_GUARD_MS 20u
 #define MUL_SYNC_WINDOWS 2u
@@ -14,7 +16,12 @@ typedef struct {
  uint32_t revision;
  uint16_t slotMs,periodMs;
  uint8_t count,profile,ids[MUL_MAX_ALRS];
+ uint16_t txLeadUs,rxBudgetUs,airtimeUs;
+ uint8_t guard100us,rangingFlags;
 } mulSchedule_t;
+void mulScheduleExperimental(mulSchedule_t *s);
+uint16_t mulScheduleLeadUs(const mulSchedule_t *s);
+bool mulScheduleAlrRanging(const mulSchedule_t *s);
 void mulScheduleLegacy(mulSchedule_t *s,uint8_t reference,uint8_t follower,uint16_t slotMs);
 const char *mulScheduleValidate(const mulSchedule_t *s);
 int mulScheduleIndex(const mulSchedule_t *s,uint8_t id);

@@ -22,7 +22,7 @@ typedef struct {
  uint64_t referenceTx,rawRx;
  uint32_t referenceSequence,rmsDtu,rejected,fitSigmaPpb,ageMs;
  int32_t appliedPpb,fittedPpb;
- uint8_t reference,method,window,count,inliers,status,ready,applied,fallback,compensated;
+ uint8_t reference,method,window,count,inliers,status,ready,applied,fallback,compensated,version;
 } mulClockTelemetry_t;
 typedef struct {
  mulTdoaTelemetry_t tdoa;

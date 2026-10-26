@@ -5,12 +5,12 @@ static mulMultiValue_t invalid(mulMultiReason_t reason) {
  return (mulMultiValue_t){.rangeDifferenceMm=INT32_MIN,.tdoaDtu=INT32_MIN,.status=mulDownlinkNoRelation,.reason=(uint8_t)reason};
 }
 bool mulMultiReceiverInit(mulMultiReceiver_t *s,const mulSchedule_t *schedule,const uint8_t receiver[8],bool stationary) {
- if(!s||!receiver||mulScheduleValidate(schedule)||schedule->profile!=MUL_PROFILE_MULTI)return false;
+ if(!s||!receiver||mulScheduleValidate(schedule)||schedule->profile<MUL_PROFILE_MULTI)return false;
  mulNetwork_t first;if(!mulSchedulePair(schedule,1,&first))return false;
  if(receiver[6]!=0xcf||receiver[7]!=0xbc)return false;
  for(unsigned i=1;i<6;i++)if(receiver[i])return false;
  if(mulScheduleIndex(schedule,receiver[0])>=0)return false;
- memset(s,0,sizeof(*s));s->schedule=*schedule;s->stationary=stationary;mulClockReset(&s->rate);mulClockFitDefaults(&s->clockConfig);mulClockFitReset(&s->fit);
+ memset(s,0,sizeof(*s));s->schedule=*schedule;s->stationary=stationary;mulClockReset(&s->rate);mulClockFitDefaults(&s->clockConfig);s->clockConfig.periodMs=schedule->periodMs;mulClockFitReset(&s->fit);
  for(unsigned i=0;i<MUL_MAX_ALRS;i++)memcpy(s->sources[i].receiverClock,receiver,8);
  return true;
 }

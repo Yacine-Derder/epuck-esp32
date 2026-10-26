@@ -23,6 +23,7 @@ typedef struct {
   uint8_t powerCorrectedTwr:1;
   uint8_t version:2; // 0 in legacy API fixtures means v1.
   uint8_t delayState:3;
+  uint8_t period10ms; // Context from versioned multi schedule;0 means1000ms.
 
 } mulRelation_t;
 
@@ -36,6 +37,8 @@ void mulRelationEncode(uint8_t frame[MUL_RELATION_FRAME_LENGTH],
 // A valid old packet represents unavailable metadata, never a stale cache hit.
 bool mulBroadcastDecode(const uint8_t *frame,size_t length,
   mulTestPacket_t *packet,mulRelation_t *relation);
+bool mulBroadcastDecodePeriodNetwork(const mulNetwork_t *network,const uint8_t *frame,size_t length,
+ mulTestPacket_t *packet,mulRelation_t *relation,uint16_t periodMs);
 bool mulBroadcastDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame,size_t length,
   mulTestPacket_t *packet,mulRelation_t *relation);
 bool mulRelationInverse(const mulRelation_t *relation,uint64_t followerTx,

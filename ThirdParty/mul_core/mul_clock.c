@@ -19,9 +19,9 @@ void mulClockReset(mulClock_t *clock)
 }
 
 static void baseline(mulClock_t *clock, const mulTestPacket_t *packet,
-                     uint64_t localRx, uint32_t observedMs)
+                     uint64_t localRx, uint32_t observedMs,uint16_t periodMs)
 {
-  clock->hasBaseline = true;
+  clock->hasBaseline = true;clock->periodMs=periodMs;
   clock->sequence = packet->sequence;
   clock->referenceTx = mulTimestampMask(packet->txTimestamp);
   clock->localRx = mulTimestampMask(localRx);
@@ -37,8 +37,9 @@ mulClockResult_t mulClockObservePeriodNetwork(const mulNetwork_t *network,mulClo
   if (clock == NULL || periodMs<10 || periodMs>2000 || !valid || packet == NULL || mulNetworkRole(network,packet->source) != mulAlrReference) {
     return mulClockIgnored;
   }
+  if(clock->hasBaseline&&clock->periodMs&&clock->periodMs!=periodMs){mulClockReset(clock);baseline(clock,packet,localRx,observedMs,periodMs);return mulClockDiscontinuity;}
   if (!clock->hasBaseline) {
-    baseline(clock, packet, localRx, observedMs);
+    baseline(clock, packet, localRx, observedMs,periodMs);
     return mulClockBaseline;
   }
   uint32_t advance = packet->sequence - clock->sequence;
@@ -79,7 +80,7 @@ mulClockResult_t mulClockObservePeriodNetwork(const mulNetwork_t *network,mulClo
   }
   if (!plausible) {
     mulClockReset(clock);
-    baseline(clock, packet, localRx, observedMs);
+    baseline(clock, packet, localRx, observedMs,periodMs);
     return mulClockDiscontinuity;
   }
 
@@ -114,7 +115,7 @@ mulClockResult_t mulClockObservePeriodNetwork(const mulNetwork_t *network,mulClo
   }
   clock->status = clock->count == MUL_CLOCK_HISTORY && inliers >= 3 ?
     mulClockValid : mulClockWarmup;
-  baseline(clock, packet, localRx, observedMs);
+  baseline(clock, packet, localRx, observedMs,periodMs);
   return mulClockSample;
 }
 
@@ -209,9 +210,11 @@ mulClockDelayStatus_t mulClockDelayStatusNetwork(const mulNetwork_t *network,con
       delay->maxAgeMs == 0 || delay->maxAgeMs > MUL_CLOCK_DELAY_MAX_AGE_MS) {
     return mulClockDelayInvalid;
   }
+  uint32_t sequenceLimit=delay->maxAgeMs<=2000 ? 3u : (delay->maxAgeMs+999)/1000+2;
+  if(clock&&clock->periodMs&&clock->periodMs!=1000)sequenceLimit=(delay->maxAgeMs+clock->periodMs-1)/clock->periodMs+2;
   if (clock == NULL || clock->epoch == 0 || delay->epoch != clock->epoch ||
       (uint32_t)(clock->sequence - delay->referenceSequence) >
-        (delay->maxAgeMs <= 2000 ? 3u : (delay->maxAgeMs+999)/1000+2)) {
+        sequenceLimit) {
     // Bound sequence distance as well as the original measurement age. This additional
     // modular guard also rejects uptime full-wrap aliases and future sequences.
     return mulClockDelayEpochMismatch;

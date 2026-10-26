@@ -104,7 +104,8 @@ class CompactLog:
                       'applied_ppb', 'fitted_ppb', 'residual_rms_dtu', 'rejected_samples', 'fit_sigma_ppb',
                       'mapping_age_ms', 'clock_estimator', 'clock_window', 'observation_count', 'inlier_count',
                       'mapping_status', 'fit_ready', 'fit_applied', 'fallback', 'propagation_compensated',
-                      'mapping_epoch', 'physical_uncertainty', 'fit_uncertainty_scope')
+                      'mapping_epoch', 'physical_uncertainty', 'fit_uncertainty_scope',
+                      'clock_record_version', 'sample_period_ms', 'capture_age_ms', 'capture_valid')
             self.write(dict(base, type='clock', node=row['node'], radio=row['radio'], epoch=row['epoch'],
                             u_ms=row['uptime_ms'], **{field: row[field] for field in fields}))
         elif event == 'tdoa_vector':

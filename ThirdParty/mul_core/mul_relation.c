@@ -46,16 +46,16 @@ bool mulRelationInverse(const mulRelation_t *r,uint64_t tx,uint32_t age,uint64_t
   if (!r->available || r->epoch==0 || r->remainingMs==0 || age > r->remainingMs ||
       limit<1000 || limit>MUL_PROP_MAX_AGE_MS || r->delayAgeMs>limit ||
       (uint32_t)r->originAgeMs+age > MUL_CLOCK_MAP_HORIZON_MS ||
-      (uint32_t)(r->referenceSequence-r->twrSequence)>(limit<=2000 ? 3u : (limit+999)/1000+2) ||
+      (uint32_t)(r->referenceSequence-r->twrSequence)>(r->period10ms ? (limit+r->period10ms*10u-1)/(r->period10ms*10u)+2 : limit<=2000 ? 3u : (limit+999)/1000+2) ||
       (r->version==2 && (r->delayState!=mulPropagationFresh && r->delayState!=mulPropagationReused)) ||
       !coordinate(r,tx,&converted,&span) || span+age>limit ||
       r->remainingMs>limit-span || r->remainingMs>limit-r->delayAgeMs) return false;
   *ref=converted; return true;
 }
 
-bool mulBroadcastDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame,size_t length,mulTestPacket_t *p,mulRelation_t *r)
+bool mulBroadcastDecodePeriodNetwork(const mulNetwork_t *network,const uint8_t *frame,size_t length,mulTestPacket_t *p,mulRelation_t *r,uint16_t periodMs)
 {
-  if (!frame || !p || !r) return false;
+  if (!frame || !p || !r || (periodMs&&(periodMs<10 || periodMs>2000 || periodMs%10))) return false;
   mulTestPacket_t packet; mulRelation_t relation={0};
   if (length==MUL_TEST_FRAME_LENGTH) {
     if (!mulDecodeTestPacket(frame,length,&packet)) return false;
@@ -65,6 +65,7 @@ bool mulBroadcastDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame,
         (frame[35] & (frame[34]==1 ? ~7 : ~63))!=0) return false;
     uint8_t base[MUL_TEST_FRAME_LENGTH]; memcpy(base,frame,sizeof(base)); base[24]=(frame[24]&0xc0)|MUL_PACKET_TEST_BROADCAST;
     if (!mulDecodeTestPacket(base,sizeof(base),&packet) || mulNetworkRole(network,packet.source)!=mulAlrFollower) return false;
+    relation.period10ms=periodMs/10;
     relation.version=frame[34];
     relation.epoch=get(frame+36,8); relation.referenceSequence=get(frame+44,4);
     relation.twrSequence=get(frame+48,4); relation.referenceOrigin=get(frame+52,5);
@@ -118,7 +119,7 @@ static void unavailableModel(mulRelation_t *r)
 mulRelation_t mulRelationPublishNetwork(const mulNetwork_t *network,const mulClock_t *clock,const mulClockDelay_t *delay,
   uint64_t tx,uint64_t hardwareNow,uint32_t nowMs,bool powerCorrectedTwr)
 {
-  mulRelation_t result={.epoch=clock->epoch,.referenceSequence=clock->sequence,
+  mulRelation_t result={.period10ms=clock->periodMs&&clock->periodMs!=1000?clock->periodMs/10:0,.epoch=clock->epoch,.referenceSequence=clock->sequence,
     .version=MUL_PROP_MAX_AGE_MS==1000 ? 1 : 2,.maxAgeMs=MUL_PROP_MAX_AGE_MS};
   int64_t lead=mulTimestampDifference(tx,hardwareNow);
   if (lead < 0 || lead > INT64_C(600)*63897600) return result;
@@ -159,3 +160,7 @@ bool mulBroadcastDecode(const uint8_t *frame,size_t length,
   mulTestPacket_t *packet,mulRelation_t *relation) { return mulBroadcastDecodeNetwork(NULL,frame,length,packet,relation); }
 mulRelation_t mulRelationPublish(const mulClock_t *clock,const mulClockDelay_t *delay,
   uint64_t followerTx,uint64_t hardwareNow,uint32_t nowMs,bool powerCorrectedTwr) { return mulRelationPublishNetwork(NULL,clock,delay,followerTx,hardwareNow,nowMs,powerCorrectedTwr); }
+
+bool mulBroadcastDecodeNetwork(const mulNetwork_t *n,const uint8_t *f,size_t length,mulTestPacket_t *p,mulRelation_t *r) {
+ return mulBroadcastDecodePeriodNetwork(n,f,length,p,r,0);
+}

@@ -44,6 +44,15 @@ int main(int argc,char **argv) {
  char line[MUL_TLM_LINE];mulTelemetry_t decoded;
  assert(mulTelemetryEncode(line,sizeof(line),&clock)&&mulTelemetryDecode(line,&decoded));
  assert(decoded.clock.referenceTx==clock.clock.referenceTx&&decoded.clock.appliedPpb==-15&&decoded.clock.fitSigmaPpb==UINT32_MAX);
+ assert(decoded.clock.version==2&&decoded.captureAgeMs==0);
+ clock.captureAgeMs=16;clock.transaction=200;
+ assert(mulTelemetryEncode(line,sizeof(line),&clock)&&mulTelemetryDecode(line,&decoded));
+ assert(decoded.captureAgeMs==16&&decoded.transaction==200&&decoded.clock.version==2);
+ clock.transaction=2001;assert(!mulTelemetryEncode(line,sizeof(line),&clock));
+ clock.clock.version=1; // Old producer has no capture age or sample-period semantics.
+ assert(mulTelemetryEncode(line,sizeof(line),&clock)&&mulTelemetryDecode(line,&decoded));
+ assert(decoded.clock.version==1&&decoded.captureAgeMs==UINT16_MAX);
+ clock.clock.version=2;clock.transaction=1000;
  clock.clock.applied=1;assert(!mulTelemetryEncode(line,sizeof(line),&clock));clock.clock.fallback=0;
  assert(mulTelemetryEncode(line,sizeof(line),&clock));clock.clock.count=25;assert(!mulTelemetryEncode(line,sizeof(line),&clock));
  if(argc==1)puts("Multi telemetry: bounded152-byte vector/raw90, N2/3/4/8, mixed validity, no-rate, legacy rejection and32/40-bit wrap passed");
