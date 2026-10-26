@@ -365,3 +365,24 @@ raw-loss/late/radio-errors/timeouts/reset-generation), active/pending/reference9
 zero99, last-reason100/op101/stage102/enabled103/version1 at104; zero105..149.
 Reason enums are explicit, counts are per receiver session/reset generation, and
 busy reset must not erase transaction identity. Both records remain152 bytes.
+
+
+Full-plan codec2 remains byte-for-byte compatible for policy fair (zero priorities).
+Opt-in codec3 retains64 bytes and uses50=policy1 freshness,51=AA priority,52=AR
+priority;53..59 stay zero. CRC/fingerprint cover all settings. Old decoders reject
+codec3; full RF4 plan hashes prevent mixed ownership. Journal and radio envelopes
+retain their sizes. `mulRangingPlanVersion` reports the actual selected codec.
+
+Freshness merges independent AA/AR virtual-deadline streams derived from requested
+per-pair rates and reference cycle. Equal deadlines use the larger class priority
+(0..255), then AA on equality. Pairs rotate fairly within each class; opportunity
+times spread across the usable interval. Independent coincident deadlines reserve
+the sum of both class ceilings, with the same setup/airtime/utilization limits.
+It never overbooks to honor a priority, and it never promises achieved success.
+
+Freshness is planned-reservation age, not distributed feedback about measurement
+success. Packet loss cannot change a local participant's slot ownership. For a
+nonzero per-pair target r milliHz, the nominal period is1000000/r ms, with cycle
+quantization; a conservative planned gap allowance is that period plus two cycles.
+Actual committed age/validity remains explicit and may be unbounded after loss.
+No adaptive rescheduling or measurement-noise claim follows from this policy.

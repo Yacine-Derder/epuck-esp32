@@ -449,3 +449,11 @@ multiple RLR assignments, then simulates five-message exchanges and queue loss.
 It verifies26 delivered records through UART framing, priority queues, TCP
 reconnect and both log formats. This is software verification, not physical
 interoperability or calibrated range-accuracy evidence.
+
+
+Current shared pin13fcdeb additionally supports64-byte full-plan codec3 for opt-in
+freshness/priority scheduling. Fair plans remain byte-compatible codec2. RF4 and
+UWB3 envelopes stay unchanged: the full-plan fingerprint covers policy/priorities
+and prevents mismatched reconstruction. Host scheduler previews report the actual
+policy/version; telemetry age continues to describe acquired data, not a planned
+deadline. Physical freshness or noise bounds are not inferred from this setting.

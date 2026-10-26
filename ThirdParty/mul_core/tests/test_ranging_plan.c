@@ -76,4 +76,39 @@ static void fairness(void) {
  }
  puts("Ranging planner fairness: AA0.5Hz and AR2Hz per pair, all8 AR links, deterministic fractional service, bounded freshness and infeasible20ms rejection passed");
 }
-int main(void){matrix();fairness();return 0;}
+static void freshness(void) {
+ mulRangingPlan_t p=plan(4,2,5,3,1000);p.aaMilliHz=500;p.arMilliHz=2000;p.policy=MUL_PLAN_FRESHNESS;p.aaPriority=9;p.arPriority=1;
+ mulRangingBudget_t b;assert(!mulRangingPlanValidate(&p,&b)&&b.peakOperations==18);
+ unsigned aa[3]={0},ar[8]={0};uint32_t last[11]={0};
+ for(unsigned cycle=0;cycle<200;cycle++) {
+  verify(&p,cycle);
+  for(unsigned i=0;i<mulRangingPlanCount(&p,cycle);i++) {
+   mulRangingOperation_t o;assert(mulRangingPlanOperation(&p,cycle,i,&o));unsigned pair;
+   if(o.kind==MUL_PLAN_AA){pair=o.responder-133;aa[pair]++;}
+   else {unsigned a=(o.initiator-132)*2+o.responder-141;ar[a]++;pair=3+a;}
+   uint32_t at=cycle*1000+o.pollUs/1000;
+   if(last[pair])assert(at-last[pair]<(pair<3?3000u:1500u));
+   last[pair]=at;
+  }
+ }
+ for(unsigned i=0;i<3;i++)assert(aa[i]==100);
+ for(unsigned i=0;i<8;i++)assert(ar[i]==400);
+ verify(&p,UINT32_MAX);verify(&p,0);
+ uint8_t bytes[64];mulRangingPlan_t decoded;assert(mulRangingPlanEncode(bytes,&p)&&bytes[0]==3&&mulRangingPlanDecode(bytes,&decoded));
+ assert(decoded.policy==1&&decoded.aaPriority==9&&decoded.arPriority==1&&mulRangingPlanFingerprint(&decoded)==mulRangingPlanFingerprint(&p));
+ p=plan(2,1,5,3,1000);p.aaMilliHz=2000;p.arMilliHz=1000;p.policy=1;p.aaPriority=2;p.arPriority=1;
+ mulRangingOperation_t o;assert(mulRangingPlanOperation(&p,0,0,&o)&&o.kind==MUL_PLAN_AA);
+ uint32_t hash=mulRangingPlanFingerprint(&p);p.arPriority=3;assert(hash!=mulRangingPlanFingerprint(&p));
+ assert(mulRangingPlanOperation(&p,0,0,&o)&&o.kind==MUL_PLAN_AR);
+ p.aaMilliHz=0;verify(&p,0);p.arMilliHz=0;assert(mulRangingPlanCount(&p,0)==0);
+ p.policy=0;assert(mulRangingPlanValidate(&p,NULL));p.aaPriority=p.arPriority=0;
+ assert(!mulRangingPlanValidate(&p,NULL)&&mulRangingPlanEncode(bytes,&p)&&bytes[0]==2);
+ for(unsigned n=2;n<=8;n++)for(unsigned r=0;r<=8;r++)for(unsigned f=0;f<4;f++) {
+  p=plan(n,r,5,f,1000);p.policy=1;p.aaPriority=255;
+  if(mulRangingPlanValidate(&p,NULL))continue;
+  for(unsigned c=0;c<10;c++)verify(&p,c);
+  verify(&p,UINT32_MAX);
+ }
+ puts("Freshness EDF: exact per-pair rates, bounded planned age, priority ties, conservative coincident deadlines, disabled classes, codec2 preservation/codec3 hash and cycle32 wrap passed");
+}
+int main(void){matrix();fairness();freshness();return 0;}

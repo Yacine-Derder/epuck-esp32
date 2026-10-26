@@ -6,6 +6,9 @@
 #define MUL_PLAN_MAX_OPERATIONS 32u
 #define MUL_PLAN_BYTES 64u
 #define MUL_PLAN_VERSION 2u
+#define MUL_PLAN_FRESHNESS_VERSION 3u
+#define MUL_PLAN_FAIR 0u
+#define MUL_PLAN_FRESHNESS 1u
 #define MUL_PLAN_SERVICE_MARGIN_US 1000u // One1ms service quantum before TX setup.
 #define MUL_PLAN_AA 1u
 #define MUL_PLAN_AR 2u
@@ -15,6 +18,7 @@ typedef struct {
  mulSchedule_t broadcast;
  uint16_t aaMilliHz,arMilliHz;
  uint8_t rlrCount,rlrs[MUL_MAX_RLRS],enabled,replyMs,maxUtilization;
+ uint8_t policy,aaPriority,arPriority; // EDF tie priorities; never inflate promised rates.
 } mulRangingPlan_t;
 typedef struct {
  uint32_t dataEndUs,reservationUs,prepareUs,usableEndUs,requestedMilliHz;
@@ -25,6 +29,7 @@ typedef struct {
  uint32_t startUs,pollUs,endUs;
  uint8_t kind,initiator,responder;
 } mulRangingOperation_t;
+uint8_t mulRangingPlanVersion(const mulRangingPlan_t *p);
 const char *mulRangingPlanValidate(const mulRangingPlan_t *p,mulRangingBudget_t *budget);
 unsigned mulRangingPlanCount(const mulRangingPlan_t *p,uint32_t cycle);
 bool mulRangingPlanOperation(const mulRangingPlan_t *p,uint32_t cycle,unsigned index,mulRangingOperation_t *out);
