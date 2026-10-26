@@ -64,9 +64,10 @@ static void fairness(void) {
  p=plan(4,2,5,3,1000);p.broadcast.txLeadUs=5000;assert(mulRangingPlanValidate(&p,NULL));
  p.broadcast.txLeadUs=1000;p.rlrs[1]=p.rlrs[0];assert(mulRangingPlanValidate(&p,NULL));
  p.rlrs[1]=132;assert(mulRangingPlanValidate(&p,NULL));
+ p=plan(4,2,5,3,1000);p.broadcast.rangingFlags=1;assert(mulRangingPlanValidate(&p,NULL));
  p=plan(4,2,5,3,1000);uint8_t bytes[MUL_PLAN_BYTES];assert(mulRangingPlanEncode(bytes,&p));
  const unsigned offsets[]={0,1,2,36,38,45,50};
- const uint8_t invalid[]={2,4,4,9,141,1,1};
+ const uint8_t invalid[]={3,4,4,9,141,1,1};
  for(unsigned i=0;i<sizeof(offsets)/sizeof(offsets[0]);i++) {
   uint8_t bad[MUL_PLAN_BYTES];memcpy(bad,bytes,sizeof(bad));bad[offsets[i]]=invalid[i];
   uint32_t crc=mulScheduleCrc(bad,60);for(unsigned j=0;j<4;j++)bad[60+j]=(uint8_t)(crc>>(8*j));

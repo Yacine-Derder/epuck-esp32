@@ -388,9 +388,17 @@ Full STM32 scenarios cover2/3/5/7/17ms and100/200/500/1000/2000ms, injected rate
 RF-OFF persistence, frame preservation and zero RLR transmissions. Simulation is
 not physical DW1000/DW3000 interoperability or short-slot reliability evidence.
 
-The shared core now pins `e7f3518`, including fingerprint-bound experimental AA
+The earlier shared-core update `e7f3518` added fingerprint-bound experimental AA
 reply20/10/5ms selection and explicit short-reply TWR math. Telemetry layouts are
 unchanged: schedule fingerprints distinguish timing settings, and raw records
 retain the original radio bytes. The ESP bridge remains passive; this update does
 not enable RLR TX. Production STM32 trace replay checks matching5ms schedules
 across numerical broadcast spacings, through the bridge and compact logger.
+
+
+The current shared pin is published LPS `7334036`, adding full-plan codec2/RF4,
+LPS journal support and passive receiver APIs. This is dependency preparation;
+the live STM32 schema/radio adapter and ESP collector do not yet accept generated
+RF4 data or label full-plan vectors. Existing type8/9 telemetry and compatibility
+profiles remain unchanged. Do not decode generated frames under profile3 labels.
+The bridge remains passive and no hardware operation accompanied this update.

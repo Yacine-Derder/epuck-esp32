@@ -308,3 +308,34 @@ The example's3 AA pairs at0.5Hz and8 AR pairs at2Hz request17.5 exchanges/s;5ms
 replies fit its stated budgets, while20ms replies are rejected. Default preview
 budgets already differ from conservative live defaults and require later hardware
 characterization; the tool never connects to devices.
+
+### Plan EEPROM journal
+
+`mul_plan_store.[ch]` stores the full64-byte ranging plan plus selected-profile
+state in two96-byte records at offsets128 and256. It preserves the legacy0..99
+region. Layout: magic0..3, version4, selected5, zero6..7, generation8..11,
+plan12..75, CRC76..79, zero80..91, commit92..95. The inactive commit is invalidated,
+then the body written, then commit last; readback must match exactly. Generation
+comparison handles32-bit rollover and rejects ambiguous/tied conflicting states.
+Uncommitted slots are ignored; no valid committed record means absent unless a
+committed but invalid record is detected. A valid older slot provides interrupted-
+write rollback. A false save after final readback failure may still be committed.
+
+Callbacks require EEPROM byte-rewrite semantics, bounded synchronous I/O and
+exclusive access to the caller-owned192-byte workspace. The LPS cfg backend shares
+its existing writer lock, requires acknowledged RF OFF for physical loads/saves,
+and marks storage uncertain on failed save. This is not a NOR-flash journal.
+Boot activation and CLI/generated-radio integration remain pending; current
+firmware does not scan/select this journal automatically. No physical extension
+region is written by current runtime paths. See the engineering handoff before
+connecting it to the scheduler; never run fixed and generated owners concurrently.
+
+
+`mulMultiReceiverInitPlan` optionally reconstructs passive TDoA cycles from the
+full-plan RF4 broadcast envelope. The caller retains an immutable plan until
+reinitialization; completed cycles carry the full-plan fingerprint. The legacy
+initializer still accepts only its prior RF2/3 envelopes. Receiver initialization
+does not authorize any RLR transmission. Link `mul_plan_protocol.c` and
+`mul_ranging_plan.c` when using `mul_multi_receiver.c`, including legacy users.
+Telemetry type8/9 still describes the prior profiles; adapters must add explicit
+versioned generated-plan labels before forwarding RF4 observations as telemetry.

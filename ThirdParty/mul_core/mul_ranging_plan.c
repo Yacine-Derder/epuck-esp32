@@ -8,6 +8,7 @@ const char *mulRangingPlanValidate(const mulRangingPlan_t *p,mulRangingBudget_t 
  const char *error=mulScheduleValidate(&p->broadcast);if(error)return error;
  const mulSchedule_t *s=&p->broadcast;
  if(s->profile!=MUL_PROFILE_EXPERIMENTAL)return "ranging planner requires explicit experimental timing";
+ if(s->rangingFlags)return "generated plan requires zero legacy ranging flags";
  if(p->enabled&~(MUL_PLAN_AA|MUL_PLAN_AR))return "unknown ranging flags";
  if(p->rlrCount>MUL_MAX_RLRS)return "RLR count: 0..8";
  for(unsigned i=0;i<MUL_MAX_RLRS;i++) {
@@ -25,7 +26,7 @@ const char *mulRangingPlanValidate(const mulRangingPlan_t *p,mulRangingBudget_t 
  b.aaPairs=(p->enabled&MUL_PLAN_AA)?s->count-1:0;
  b.arPairs=(p->enabled&MUL_PLAN_AR)?s->count*p->rlrCount:0;
  b.requestedMilliHz=(uint32_t)b.aaPairs*p->aaMilliHz+(uint32_t)b.arPairs*p->arMilliHz;
- b.prepareUs=(uint32_t)s->txLeadUs+s->rxBudgetUs;
+ b.prepareUs=(uint32_t)s->txLeadUs+s->rxBudgetUs+MUL_PLAN_SERVICE_MARGIN_US;
  /* RX timestamps are marker referenced: reserve four complete reply intervals,
   * the final RESULT airtime, processing, guard, and initial delayed-TX setup. */
  b.reservationUs=b.prepareUs+4u*p->replyMs*1000+s->airtimeUs+s->rxBudgetUs+guard;
@@ -78,14 +79,14 @@ bool mulRangingPlanOperation(const mulRangingPlan_t *p,uint32_t cycle,unsigned i
 }
 bool mulRangingPlanEncode(uint8_t out[MUL_PLAN_BYTES],const mulRangingPlan_t *p) {
  if(!out||mulRangingPlanValidate(p,NULL))return false;
- uint8_t b[MUL_PLAN_BYTES]={0};b[0]=1;b[1]=p->enabled;b[2]=p->replyMs;b[3]=p->maxUtilization;
+ uint8_t b[MUL_PLAN_BYTES]={0};b[0]=MUL_PLAN_VERSION;b[1]=p->enabled;b[2]=p->replyMs;b[3]=p->maxUtilization;
  if(!mulScheduleEncode(b+4,&p->broadcast))return false;
  b[36]=p->rlrCount;memcpy(b+37,p->rlrs,MUL_MAX_RLRS);
  put(b+46,p->aaMilliHz,2);put(b+48,p->arMilliHz,2);put(b+60,mulScheduleCrc(b,60),4);
  memcpy(out,b,sizeof(b));return true;
 }
 const char *mulRangingPlanDecodeError(const uint8_t in[MUL_PLAN_BYTES],mulRangingPlan_t *out) {
- if(!in||!out||in[0]!=1||in[45]||get(in+60,4)!=mulScheduleCrc(in,60))return "ranging plan version/CRC/header";
+ if(!in||!out||in[0]!=MUL_PLAN_VERSION||in[45]||get(in+60,4)!=mulScheduleCrc(in,60))return "ranging plan version/CRC/header";
  for(unsigned i=50;i<60;i++)if(in[i])return "ranging plan reserved bytes";
  mulRangingPlan_t p={.enabled=in[1],.replyMs=in[2],.maxUtilization=in[3],.rlrCount=in[36],
  .aaMilliHz=(uint16_t)get(in+46,2),.arMilliHz=(uint16_t)get(in+48,2)};

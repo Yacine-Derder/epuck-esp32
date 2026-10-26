@@ -4,6 +4,7 @@
 #include <string.h>
 #define MS INT64_C(63897600)
 static int64_t scale(int64_t n,int32_t ppb){int64_t product=n*ppb;return n+(product>=0?(product+500000000)/1000000000:-((-product+500000000)/1000000000));}
+static const mulRangingPlan_t *activePlan;
 static const int32_t differences[]={-477,0,477,2000,-2000,1,-1};
 static size_t packet(const mulSchedule_t *s,unsigned slot,unsigned step,uint32_t cycle,bool available,uint8_t frame[90],uint64_t *rx) {
  int32_t folPpb=slot%2?35000:-45000,receiverPpb=15000;
@@ -17,13 +18,15 @@ static size_t packet(const mulSchedule_t *s,unsigned slot,unsigned step,uint32_t
   .referenceOrigin=reference,.followerOrigin=followerOrigin,.skewPpb=folPpb,.originAgeMs=slot*s->slotMs+1,
   .delayAgeMs=3000+slot*s->slotMs,.delayDtu=120,.delayState=mulPropagationReused,.maxAgeMs=6000};
  uint64_t tx=slot?mulTimestampMask(followerOrigin+scale(offset+120,folPpb)):reference;
- return mulMultiBroadcastEncode(frame,90,s,slot,cycle,tx,slot?&r:NULL);
+ return activePlan?mulPlanBroadcastEncode(frame,90,activePlan,slot,cycle,tx,slot?&r:NULL):mulMultiBroadcastEncode(frame,90,s,slot,cycle,tx,slot?&r:NULL);
 }
-static void scenario(unsigned count,unsigned spacing,bool stationary) {
+static void scenario(unsigned count,unsigned spacing,bool stationary,bool planned) {
  mulSchedule_t schedule={.profile=MUL_PROFILE_MULTI,.count=count,.slotMs=spacing,.periodMs=1000,.revision=1};
  for(unsigned i=0;i<count;i++)schedule.ids[i]=(uint8_t)(132+i);
  mulMultiReceiver_t s;const uint8_t receiver[8]={0x8d,0,0,0,0,0,0xcf,0xbc};
- assert(mulMultiReceiverInit(&s,&schedule,receiver,stationary));
+ mulRangingPlan_t plan={.replyMs=20,.maxUtilization=80};
+ if(planned){mulScheduleExperimental(&schedule);schedule.rangingFlags=0;plan.broadcast=schedule;activePlan=&plan;assert(mulMultiReceiverInitPlan(&s,&plan,receiver,stationary));}
+ else {activePlan=NULL;assert(mulMultiReceiverInit(&s,&schedule,receiver,stationary));}
  for(unsigned step=0;step<14;step++) {
   uint32_t cycle=UINT32_MAX-5+step,base=UINT32_MAX-8000+step*1000;
   for(unsigned slot=0;slot<count;slot++) {
@@ -38,7 +41,7 @@ static void scenario(unsigned count,unsigned spacing,bool stationary) {
   assert(!mulMultiReceiverPoll(&s,s.cycleStartMs+(count-1)*spacing+19,&result));
   assert(mulMultiReceiverPoll(&s,s.cycleStartMs+(count-1)*spacing+20,&result));
   assert(!mulMultiReceiverPoll(&s,base+900,&result));
-  assert(result.cycle==cycle&&result.count==count&&result.fingerprint==mulScheduleFingerprint(&schedule));
+  assert(result.cycle==cycle&&result.count==count&&result.fingerprint==(planned?mulRangingPlanFingerprint(&plan):mulScheduleFingerprint(&schedule)));
   for(unsigned slot=1;slot<count;slot++) {
    const mulMultiValue_t *v=&result.values[slot-1];
    if(step==6&&slot==2){assert(v->reason==mulMultiMissing&&v->rangeDifferenceMm==INT32_MIN);continue;}
@@ -52,14 +55,27 @@ static void scenario(unsigned count,unsigned spacing,bool stationary) {
   }
  }
  assert(s.duplicates&&s.cycles==14);
+ // An RLR-roster mismatch must reject RF4 even with the identical sub-schedule.
+ if(planned) {
+  mulRangingPlan_t other=plan;other.rlrCount=1;other.rlrs[0]=144;
+  assert(mulScheduleFingerprint(&other.broadcast)==mulScheduleFingerprint(&plan.broadcast));
+  uint8_t wrong[90];size_t n=mulPlanBroadcastEncode(wrong,sizeof(wrong),&other,0,s.cycle+1,0,NULL);assert(n);
+  mulMultiReceiveOutput_t out;uint32_t received=s.received;
+  assert(!mulMultiReceiverReceive(&s,wrong,n,0,1,s.lastCycleMs+100,&out));assert(s.received==received);
+  mulMultiReceiver_t old;assert(mulMultiReceiverInit(&old,&schedule,receiver,stationary));
+  assert(!mulMultiReceiverReceive(&old,wrong,n,0,1,s.lastCycleMs+100,&out));
+ }
  // Schedule mismatch and late/old packets cannot mutate completed observations.
  uint8_t frame[90];uint64_t rx;size_t n=packet(&schedule,1,13,s.cycle,true,frame,&rx);mulMultiReceiveOutput_t out;
  frame[36]^=1;unsigned mismatch=s.mismatches;assert(!mulMultiReceiverReceive(&s,frame,n,rx,1,s.lastCycleMs+100,&out)&&s.mismatches==mismatch+1);
  frame[36]^=1;assert(!mulMultiReceiverReceive(&s,frame,n,rx,1,s.lastCycleMs+100,&out)&&s.late);
 }
-static void reordering_and_recovery(void) {
- mulSchedule_t schedule={.profile=MUL_PROFILE_MULTI,.count=4,.slotMs=10,.periodMs=1000,.revision=1,.ids={132,133,134,135}};
- mulMultiReceiver_t s;const uint8_t receiver[8]={141,0,0,0,0,0,0xcf,0xbc};assert(mulMultiReceiverInit(&s,&schedule,receiver,true));
+static void reordering_and_recovery(bool planned) {
+ activePlan=NULL;mulSchedule_t schedule={.profile=MUL_PROFILE_MULTI,.count=4,.slotMs=10,.periodMs=1000,.revision=1,.ids={132,133,134,135}};
+ mulMultiReceiver_t s;const uint8_t receiver[8]={141,0,0,0,0,0,0xcf,0xbc};
+ mulRangingPlan_t plan={.replyMs=20,.maxUtilization=80};
+ if(planned){mulScheduleExperimental(&schedule);schedule.rangingFlags=0;plan.broadcast=schedule;activePlan=&plan;assert(mulMultiReceiverInitPlan(&s,&plan,receiver,true));}
+ else assert(mulMultiReceiverInit(&s,&schedule,receiver,true));
  for(unsigned step=0;step<17;step++) {
   unsigned order[4]={0,1,2,3};
   if(step==6){order[0]=1;order[1]=0;}
@@ -88,7 +104,7 @@ static void reordering_and_recovery(void) {
 }
 int main(void) {
  const unsigned counts[]={2,3,4,8};
- for(unsigned n=0;n<4;n++)for(unsigned spacing=10;spacing<=50;spacing+=40)for(unsigned policy=0;policy<2;policy++)scenario(counts[n],spacing,policy!=0);
- scenario(2,500,true);reordering_and_recovery();
+ for(unsigned n=0;n<4;n++)for(unsigned spacing=10;spacing<=50;spacing+=40)for(unsigned policy=0;policy<2;policy++)for(unsigned planned=0;planned<2;planned++)scenario(counts[n],spacing,policy!=0,planned!=0);
+ scenario(2,500,true,false);reordering_and_recovery(false);reordering_and_recovery(true);
  puts("Multi receiver: N2/3/4/8, signed/zero exact geometry and clock skews, partial vectors, missing ref/follower, invalid relation, duplicates/stale/schedule rejection and native40/cycle32/uptime32 wrap passed");return 0;
 }

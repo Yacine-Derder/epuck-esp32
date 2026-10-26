@@ -14,6 +14,10 @@ bool mulMultiReceiverInit(mulMultiReceiver_t *s,const mulSchedule_t *schedule,co
  for(unsigned i=0;i<MUL_MAX_ALRS;i++)memcpy(s->sources[i].receiverClock,receiver,8);
  return true;
 }
+bool mulMultiReceiverInitPlan(mulMultiReceiver_t *s,const mulRangingPlan_t *plan,const uint8_t receiver[8],bool stationary) {
+ if(mulRangingPlanValidate(plan,NULL)||!mulMultiReceiverInit(s,&plan->broadcast,receiver,stationary))return false;
+ s->plan=plan;return true;
+}
 static void begin(mulMultiReceiver_t *s,uint32_t cycle,unsigned slot,uint32_t now) {
  s->cycle=cycle;s->cycleStartMs=now-mulScheduleOffsetMs(&s->schedule,slot);s->lastCycleMs=now;
  s->seenMask=0;s->hasCycle=s->active=true;
@@ -40,7 +44,7 @@ static void evaluate(mulMultiReceiver_t *s,unsigned slot,uint32_t now) {
 }
 static void finish(mulMultiReceiver_t *s,mulMultiCycle_t *out) {
  memset(out,0,sizeof(*out));
- out->cycle=s->cycle;out->observedMs=s->cycleStartMs;out->fingerprint=mulScheduleFingerprint(&s->schedule);
+ out->cycle=s->cycle;out->observedMs=s->cycleStartMs;out->fingerprint=s->plan?mulRangingPlanFingerprint(s->plan):mulScheduleFingerprint(&s->schedule);
  out->revision=s->schedule.revision;out->slotMs=s->schedule.slotMs;out->periodMs=s->schedule.periodMs;
  out->count=s->schedule.count;memcpy(out->ids,s->schedule.ids,MUL_MAX_ALRS);out->seenMask=s->seenMask;
  if(s->seenMask&1u)out->referenceRx=s->sources[0].source.rxTimestamp;
@@ -71,9 +75,9 @@ static mulSequenceResult_t record(mulMultiReceiver_t *s,unsigned slot,const mulT
 bool mulMultiReceiverReceive(mulMultiReceiver_t *s,const uint8_t *frame,size_t n,uint64_t rx,uint32_t age,uint32_t now,mulMultiReceiveOutput_t *out) {
  if(!s||!frame||!out||rx>MUL_TIMESTAMP_MASK)return false;
  memset(out,0,sizeof(*out));
- if(!mulMultiBroadcastDecode(&s->schedule,frame,n,&out->broadcast)) {
+ if(!(s->plan?mulPlanBroadcastDecode(s->plan,frame,n,&out->broadcast):mulMultiBroadcastDecode(&s->schedule,frame,n,&out->broadcast))) {
   s->rejected++;s->mismatches++;
-  if(s->active&&n==MUL_MULTI_FOLLOWER_BYTES&&frame[24]==MUL_MULTI_FOLLOWER_TYPE&&frame[34]==MUL_MULTI_VERSION) {
+  if(s->active&&n==MUL_MULTI_FOLLOWER_BYTES&&frame[24]==MUL_MULTI_FOLLOWER_TYPE&&frame[34]==(s->plan?MUL_PLAN_RADIO_VERSION:(s->schedule.profile==MUL_PROFILE_EXPERIMENTAL?3:MUL_MULTI_VERSION))) {
    unsigned slot=frame[35];uint32_t cycle=0;for(unsigned i=0;i<4;i++)cycle|=(uint32_t)frame[25+i]<<(8*i);
    if(slot>0&&slot<s->schedule.count&&cycle==s->cycle&&!(s->seenMask&(1u<<slot))) {
     uint8_t id[8]={s->schedule.ids[slot],0,0,0,0,0,0xcf,0xbc};

@@ -5,6 +5,8 @@
 #define MUL_MAX_RLRS 8u
 #define MUL_PLAN_MAX_OPERATIONS 32u
 #define MUL_PLAN_BYTES 64u
+#define MUL_PLAN_VERSION 2u
+#define MUL_PLAN_SERVICE_MARGIN_US 1000u // One1ms service quantum before TX setup.
 #define MUL_PLAN_AA 1u
 #define MUL_PLAN_AR 2u
 /* Per-pair rates, in milliHz. This version is a planner/configuration codec;
