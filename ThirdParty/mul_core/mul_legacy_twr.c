@@ -85,16 +85,16 @@ bool mulTwrDecodeNetwork(const mulNetwork_t *network,const uint8_t *frame, size_
   return true;
 }
 
-static bool interval(uint64_t a, uint64_t b)
+static bool intervalReply(uint64_t a,uint64_t b,unsigned replyMs)
 {
   int64_t delta = mulTimestampDifference(a, b);
-  return delta >= (int64_t)(15*MUL_TWR_DTU_PER_MS) && delta <= (int64_t)(30*MUL_TWR_DTU_PER_MS);
+  return (replyMs==5||replyMs==10||replyMs==20)&&delta >= (int64_t)(3*replyMs*MUL_TWR_DTU_PER_MS/4) && delta <= (int64_t)(3*replyMs*MUL_TWR_DTU_PER_MS/2);
 }
 
-bool mulTwrCalculate(const uint64_t t[6], uint32_t *tof)
+bool mulTwrCalculateReply(const uint64_t t[6],uint32_t *tof,unsigned replyMs)
 {
-  if (t == NULL || tof == NULL || !interval(t[3],t[0]) || !interval(t[4],t[3]) ||
-      !interval(t[2],t[1]) || !interval(t[5],t[2])) return false;
+  if (t == NULL || tof == NULL || !intervalReply(t[3],t[0],replyMs) || !intervalReply(t[4],t[3],replyMs) ||
+      !intervalReply(t[2],t[1],replyMs) || !intervalReply(t[5],t[2],replyMs)) return false;
   uint64_t ra = (uint64_t)mulTimestampDifference(t[3],t[0]);
   uint64_t da = (uint64_t)mulTimestampDifference(t[4],t[3]);
   uint64_t db = (uint64_t)mulTimestampDifference(t[2],t[1]);
@@ -117,9 +117,10 @@ bool mulTwrCalculate(const uint64_t t[6], uint32_t *tof)
   return true;
 }
 
-bool mulTwrResults(const uint64_t stamps[6], const mulPower_t power[3],
-  uint32_t *raw, uint32_t *corrected)
+bool mulTwrResultsReply(const uint64_t stamps[6],const mulPower_t power[3],
+  uint32_t *raw,uint32_t *corrected,unsigned replyMs)
 {
+  if(!stamps||!power||!raw||!corrected)return false;
   uint64_t original[6]; memcpy(original,stamps,sizeof(original));
   bool complete=true;
   for (unsigned int i=0;i<3;i++) {
@@ -127,8 +128,8 @@ bool mulTwrResults(const uint64_t stamps[6], const mulPower_t power[3],
     if (power[i].status != mulPowerApplied) complete=false;
   }
   *corrected=UINT32_MAX;
-  if (!mulTwrCalculate(original,raw)) return false;
-  if (complete) mulTwrCalculate(stamps,corrected);
+  if (!mulTwrCalculateReply(original,raw,replyMs)) return false;
+  if (complete) mulTwrCalculateReply(stamps,corrected,replyMs);
   return true;
 }
 
@@ -136,3 +137,6 @@ bool mulTwrResults(const uint64_t stamps[6], const mulPower_t power[3],
 /* Legacy API wrappers retain the default network. */
 void mulTwrEncode(uint8_t frame[MUL_TWR_FRAME_LENGTH],const mulTwrPacket_t *packet) { mulTwrEncodeNetwork(NULL,frame,packet); }
 bool mulTwrDecode(const uint8_t *frame,size_t length,mulTwrPacket_t *packet) { return mulTwrDecodeNetwork(NULL,frame,length,packet); }
+
+bool mulTwrCalculate(const uint64_t t[6],uint32_t *tof){return mulTwrCalculateReply(t,tof,20);}
+bool mulTwrResults(const uint64_t t[6],const mulPower_t p[3],uint32_t *raw,uint32_t *corrected){return mulTwrResultsReply(t,p,raw,corrected,20);}

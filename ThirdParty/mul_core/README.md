@@ -267,3 +267,44 @@ For an authorized local-only integration, the exporter supports explicit
 push/fetch. The default still requires origin/master ancestry. UPSTREAM.json pins
 the exact commit and file hashes in either case; unpublished pins are available
 from the local canonical repository until the owner authorizes publication.
+
+## Deterministic ranging planner (adapter integration pending)
+
+`mul_ranging_plan.[ch]` supplies a bounded, stateless planner for reference-to-
+follower AA and every ALR-to-RLR pair, with up to8 ALRs/8 RLRs. Per-pair targets
+use integer milliHz; disabled types create no operations. Supported candidate reply
+intervals are20/10/5ms, subject to explicit lead+processing+airtime+guard feasibility.
+An aggregate integer quota distributes fractional requests across cycles; weighted
+AA/AR selection and pair rotation bound class fairness to one operation. Within a
+cycle, reservations spread over the usable interval after broadcast data and before
+the20ms next-reference preparation guard. Peak-cycle demand must fit the selected
+10..80% utilization cap (preview default70%) and32-operation implementation bound.
+Infeasible rates fail closed. Cycle32 rollover reconstructs the same reset quota
+phase on every participant; it is not an extended64-bit schedule epoch.
+
+The budget includes initial setup, four replies, final RESULT airtime/processing and
+guard. This is a conservative software model, not a measured radio turnaround bound.
+It provides deterministic ownership and intervals; actual TX/timeout/cancellation,
+configuration persistence and scheduled RLR participation remain to be connected.
+Do not enable this planner alongside the existing fixed AA window owner.
+
+Its separate64-byte codec v1 carries outer header0..3, verified broadcast schedule
+4..35, RLR count36/IDs37..44, reserved45, AA/AR target milliHz46..49, reserved50..59,
+and CRC60..63. The broadcast timing subrecord has AA flags cleared in preview:
+the planner owns ranging flags separately and does not activate existing windows.
+This codec is not yet an on-radio frame or an EEPROM schema. Existing firmware
+continues using its current pinned schedule codecs and fixed maintenance windows.
+
+Read-only production-C preview:
+
+```sh
+python3 tools/mul_schedule_preview.py tools/examples/mul_ranging_plan.json --cycles 3
+```
+
+Output includes the fingerprint, guarded reservation duration/capacity, per-pair
+requested rates, per-cycle utilization and each operation's kind/participants/
+start/poll/end. `radio_integration:false` explicitly identifies the current scope.
+The example's3 AA pairs at0.5Hz and8 AR pairs at2Hz request17.5 exchanges/s;5ms
+replies fit its stated budgets, while20ms replies are rejected. Default preview
+budgets already differ from conservative live defaults and require later hardware
+characterization; the tool never connects to devices.

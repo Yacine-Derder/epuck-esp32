@@ -387,3 +387,10 @@ trace and exercises the actual ESP parser/queues/TCP reconnect/compact collector
 Full STM32 scenarios cover2/3/5/7/17ms and100/200/500/1000/2000ms, injected rate/skew,
 RF-OFF persistence, frame preservation and zero RLR transmissions. Simulation is
 not physical DW1000/DW3000 interoperability or short-slot reliability evidence.
+
+The shared core now pins `e7f3518`, including fingerprint-bound experimental AA
+reply20/10/5ms selection and explicit short-reply TWR math. Telemetry layouts are
+unchanged: schedule fingerprints distinguish timing settings, and raw records
+retain the original radio bytes. The ESP bridge remains passive; this update does
+not enable RLR TX. Production STM32 trace replay checks matching5ms schedules
+across numerical broadcast spacings, through the bridge and compact logger.

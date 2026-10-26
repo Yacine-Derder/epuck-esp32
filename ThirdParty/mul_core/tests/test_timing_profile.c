@@ -56,7 +56,7 @@ int main(void) {
  s.slotMs=2;assert(mulScheduleValidate(&s));s.txLeadUs=500;s.airtimeUs=400;assert(!mulScheduleValidate(&s));
  s.slotMs=1;assert(mulScheduleValidate(&s));s.slotMs=10;s.txLeadUs=499;assert(mulScheduleValidate(&s));
  s.txLeadUs=500;s.periodMs=200;assert(mulScheduleValidate(&s));s.rangingFlags=0;assert(!mulScheduleValidate(&s));
- s.periodMs=201;assert(mulScheduleValidate(&s));s.periodMs=200;s.rangingFlags=2;assert(mulScheduleValidate(&s));
+ s.periodMs=201;assert(mulScheduleValidate(&s));s.periodMs=200;s.rangingFlags=8;assert(mulScheduleValidate(&s));
  assert(sizeof(mulClock_t)==80&&sizeof(mulRelation_t)==48);
  puts("Experimental timing core: schema2/profile3, numerical2/3/5/7/10/17/50ms and100..2000ms cycles, guards/disabled AA, strict legacy rejection, period-aware geometry and fixed clock/relation size passed");return 0;
 }

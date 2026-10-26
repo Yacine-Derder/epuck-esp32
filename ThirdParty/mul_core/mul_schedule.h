@@ -9,6 +9,7 @@
 #define MUL_PROFILE_MULTI 2u
 #define MUL_PROFILE_EXPERIMENTAL 3u
 #define MUL_RANGING_ALR_ALR 1u
+#define MUL_RANGING_REPLY_MASK 6u //0=20ms,2=10ms,4=5ms;6 reserved.
 #define MUL_SCHEDULE_CYCLE_MS 1000u
 #define MUL_DATA_GUARD_MS 20u
 #define MUL_SYNC_WINDOWS 2u
@@ -20,6 +21,7 @@ typedef struct {
  uint8_t guard100us,rangingFlags;
 } mulSchedule_t;
 void mulScheduleExperimental(mulSchedule_t *s);
+uint16_t mulScheduleReplyMs(const mulSchedule_t *s);
 uint16_t mulScheduleLeadUs(const mulSchedule_t *s);
 bool mulScheduleAlrRanging(const mulSchedule_t *s);
 void mulScheduleLegacy(mulSchedule_t *s,uint8_t reference,uint8_t follower,uint16_t slotMs);

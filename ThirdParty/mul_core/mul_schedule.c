@@ -14,6 +14,10 @@ void mulScheduleLegacy(mulSchedule_t *s,uint8_t ref,uint8_t fol,uint16_t slot) {
 void mulScheduleExperimental(mulSchedule_t *s) {
  s->profile=MUL_PROFILE_EXPERIMENTAL;s->txLeadUs=5000;s->rxBudgetUs=2000;s->airtimeUs=1000;s->guard100us=1;s->rangingFlags=MUL_RANGING_ALR_ALR;
 }
+uint16_t mulScheduleReplyMs(const mulSchedule_t *s) {
+ if(!s||s->profile!=MUL_PROFILE_EXPERIMENTAL)return 20;
+ switch(s->rangingFlags&MUL_RANGING_REPLY_MASK){case 0:return 20;case 2:return 10;case 4:return 5;default:return 0;}
+}
 uint16_t mulScheduleLeadUs(const mulSchedule_t *s){return s&&s->profile==MUL_PROFILE_EXPERIMENTAL?s->txLeadUs:5000;}
 bool mulScheduleAlrRanging(const mulSchedule_t *s){return s&&s->profile!=MUL_PROFILE_EXPERIMENTAL?true:s&&(s->rangingFlags&MUL_RANGING_ALR_ALR);}
 const char *mulScheduleValidate(const mulSchedule_t *s) {
@@ -32,7 +36,8 @@ const char *mulScheduleValidate(const mulSchedule_t *s) {
   if(s->rxBudgetUs<100||s->rxBudgetUs>20000)return "rx_budget_us: 100..20000";
   if(s->airtimeUs<400||s->airtimeUs>20000)return "airtime_us: 400..20000";
   if(!s->guard100us||s->guard100us>100)return "guard_us: 100..10000, step100";
-  if(s->rangingFlags&~MUL_RANGING_ALR_ALR)return "unsupported ranging adapter flags";
+  if((s->rangingFlags&~(MUL_RANGING_ALR_ALR|MUL_RANGING_REPLY_MASK))||!mulScheduleReplyMs(s))return "unsupported ranging/reply flags";
+  if(mulScheduleAlrRanging(s)&&(uint32_t)mulScheduleReplyMs(s)*1000<s->txLeadUs+s->rxBudgetUs+s->airtimeUs+(uint32_t)s->guard100us*100)return "reply below lead+processing+airtime+guard";
   if((uint32_t)s->slotMs*1000<s->txLeadUs+s->rxBudgetUs+s->airtimeUs+(uint32_t)s->guard100us*100)return "spacing below lead+processing+airtime+guard";
   if(mulScheduleAlrRanging(s)&&(uint32_t)(s->count-1)*s->slotMs*1000+s->airtimeUs+(uint32_t)s->guard100us*100+s->rxBudgetUs>630000)return "data airtime overlaps AA preparation";
   if(mulScheduleAlrRanging(s)&&s->periodMs<1000)return "AA compatibility windows require cycle>=1000";
