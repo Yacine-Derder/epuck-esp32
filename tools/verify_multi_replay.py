@@ -26,7 +26,7 @@ async def replay(path, experimental=False):
         chosen = []
         periods = set()
         for line, row in zip(lines, decoded):
-            if row['uptime_ms'] <= 10200 or row['type'] == 'clock' and row['fit_applied'] and row['sample_period_ms'] not in periods:
+            if row['uptime_ms'] <= 10200 or row['type'] == 'clock' and row['capture_valid'] is False or row['type'] == 'clock' and row['fit_applied'] and row['sample_period_ms'] not in periods:
                 chosen.append(line)
                 if row['type'] == 'clock' and row['fit_applied']:
                     periods.add(row['sample_period_ms'])
@@ -84,6 +84,7 @@ async def replay(path, experimental=False):
         clocks = [row for row in rows if row['type'] == 'clock']
         original_clocks = [row for row in expected if row['type'] == 'clock']
         assert len(clocks) >= len(original_clocks)
+        assert any(row['capture_valid'] is False for row in clocks)
         for actual, original in zip(clocks, original_clocks):
             for key in ('reference_tx_dtu', 'local_rx_dtu', 'reference_sequence', 'sample_period_ms', 'capture_age_ms', 'capture_valid', 'fit_applied'):
                 assert actual[key] == original[key], key
