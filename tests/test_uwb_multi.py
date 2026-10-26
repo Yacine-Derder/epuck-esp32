@@ -102,3 +102,21 @@ class Multi(unittest.TestCase):
         state = monitor.snapshot()['test']
         self.assertEqual(len(state['vector']), 7)
         self.assertIn('4/7 valid', state['status'])
+
+    def test_experimental_marker_allows_numeric_timing_only_when_explicit(self):
+        data = bytearray.fromhex(self.lines[-1][5:])
+        for slot, period in ((2, 100), (3, 200), (5, 500), (7, 1000), (251, 2000)):
+            data[11] = 3
+            data[57:61] = struct.pack('<HH', slot, period)
+            row = collector.decode(wire(data))
+            self.assertEqual(row['schedule_profile'], 3)
+            self.assertTrue(row['experimental_timing'])
+            self.assertEqual((row['slot_ms'], row['cycle_ms']), (slot, period))
+            data[11] = 0
+            with self.assertRaises(ValueError):
+                collector.decode(wire(data))
+        data[11] = 3
+        for slot, period in ((0, 1000), (3, 90), (3, 201), (500, 1000)):
+            data[57:61] = struct.pack('<HH', slot, period)
+            with self.assertRaises(ValueError):
+                collector.decode(wire(data))

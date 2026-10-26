@@ -113,6 +113,7 @@ class CompactLog:
                             reference_node=row['reference_node'], alr_ids=row['alr_ids'],
                             schedule_revision=row['schedule_revision'], schedule_fingerprint=row['schedule_fingerprint'],
                             slot_ms=row['slot_ms'], cycle_ms=row['cycle_ms'], rate_policy=row['rate_policy'],
+                            schedule_profile=row['schedule_profile'], experimental_timing=row['experimental_timing'],
                             seen_mask=row['seen_mask'], valid_mask=row['valid_mask'], followers=row['followers']))
         elif event == 'tdoa':
             roster = (row['reference_node'], row['follower_node'], row['rate_policy'], row['slot_ms'])

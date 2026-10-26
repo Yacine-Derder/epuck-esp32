@@ -17,18 +17,40 @@ from uwb_collect import collect, decode
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def replay(path):
-    expected = [decode(line.strip()) for line in path.read_text().splitlines()]
-    assert expected and all(row['type'] == 'tdoa_vector' for row in expected)
+async def replay(path, experimental=False):
+    lines = path.read_text().splitlines()
+    decoded = [decode(line.strip()) for line in lines]
+    if experimental:
+        # Keep two cycles per timing profile, including raw and clock observations,
+        # inside the bounded bridge fixture; full adapter scenarios run upstream.
+        chosen = []
+        periods = set()
+        for line, row in zip(lines, decoded):
+            if row['uptime_ms'] <= 10200 or row['type'] == 'clock' and row['fit_applied'] and row['sample_period_ms'] not in periods:
+                chosen.append(line)
+                if row['type'] == 'clock' and row['fit_applied']:
+                    periods.add(row['sample_period_ms'])
+        # Last cycle of each profile contains fully converged vectors.
+        for i, row in enumerate(decoded):
+            if row['type'] == 'tdoa_vector' and row['cycle'] == 134:
+                chosen.extend(lines[max(0, i-5):i+1])
+        lines = chosen
+        expected = [decode(line) for line in lines]
+        assert 0 < len(expected) < 128
+    else:
+        expected = decoded
+        assert expected and all(row['type'] == 'tdoa_vector' for row in expected)
     with tempfile.TemporaryDirectory() as work:
         executable = Path(work)/'bridge'
+        fixture = Path(work)/'trace.uart'
+        fixture.write_text('\n'.join(lines)+'\n')
         subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror',
                         '-Wno-unused-function', '-Wno-misleading-indentation', '-Wno-return-type',
                         '-DBRIDGE_HOST_TEST', '-I'+str(ROOT/'tests'), '-I'+str(ROOT/'main'),
                         '-I'+str(ROOT/'ThirdParty/mul_core'), str(ROOT/'tests/fixtures/bridge_e2e.c'),
                         str(ROOT/'main/bridge_protocol.c'), str(ROOT/'ThirdParty/mul_core/mul_telemetry.c'),
                         '-o', str(executable)], check=True)
-        process = subprocess.Popen([str(executable), str(path)], stdout=subprocess.PIPE, text=True)
+        process = subprocess.Popen([str(executable), str(fixture)], stdout=subprocess.PIPE, text=True)
         stop = asyncio.Event()
         output = io.StringIO()
         try:
@@ -49,17 +71,33 @@ async def replay(path):
             process.wait(timeout=3)
     rows = list(map(json.loads, output.getvalue().splitlines()))
     vectors = [row for row in rows if row['type'] == 'tdoa_vector']
-    assert len(vectors) >= len(expected), (len(vectors), len(expected))
-    for actual, original in zip(vectors, expected):
-        for key in ('cycle', 'followers', 'alr_ids', 'schedule_revision', 'schedule_fingerprint', 'seen_mask', 'valid_mask'):
+    original_vectors = [row for row in expected if row['type'] == 'tdoa_vector']
+    assert len(vectors) >= len(original_vectors), (len(vectors), len(original_vectors))
+    for actual, original in zip(vectors, original_vectors):
+        for key in ('cycle', 'followers', 'alr_ids', 'schedule_revision', 'schedule_fingerprint', 'seen_mask', 'valid_mask', 'slot_ms', 'cycle_ms'):
             assert actual[key] == original[key], key
-    assert {len(row['alr_ids']) for row in vectors} == {2, 3, 4, 8}
     assert any(row['valid_mask'] for row in vectors)
-    assert any(any(f['reason_name'] == 'missing' for f in row['followers']) for row in vectors)
-    print(f'PASS: {len(expected)} STM32 production vectors -> ESP UART/parser/priority queue -> TCP reconnect -> compact JSONL; N2/3/4/8, partial validity and identities preserved')
+    if experimental:
+        assert {row['cycle_ms'] for row in vectors} == {100, 200, 500, 1000, 2000}
+        assert {row['slot_ms'] for row in vectors} == {2, 3, 5, 7, 17}
+        assert all(row['experimental_timing'] and row['schedule_profile'] == 3 for row in vectors)
+        clocks = [row for row in rows if row['type'] == 'clock']
+        original_clocks = [row for row in expected if row['type'] == 'clock']
+        assert len(clocks) >= len(original_clocks)
+        for actual, original in zip(clocks, original_clocks):
+            for key in ('reference_tx_dtu', 'local_rx_dtu', 'reference_sequence', 'sample_period_ms', 'capture_age_ms', 'capture_valid', 'fit_applied'):
+                assert actual[key] == original[key], key
+        print(f'PASS: {len(expected)} experimental STM32 clock/raw/vector records through ESP UART/queues/TCP reconnect/compact JSON; numerical2/3/5/7/17ms, cycles100..2000ms')
+    else:
+        assert {len(row['alr_ids']) for row in vectors} == {2, 3, 4, 8}
+        assert any(any(f['reason_name'] == 'missing' for f in row['followers']) for row in vectors)
+        print(f'PASS: {len(expected)} STM32 production vectors -> ESP UART/parser/priority queue -> TCP reconnect -> compact JSONL; N2/3/4/8, partial validity and identities preserved')
+
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('trace', type=Path)
-    asyncio.run(replay(parser.parse_args().trace.resolve()))
+    parser.add_argument('--experimental', action='store_true')
+    args = parser.parse_args()
+    asyncio.run(replay(args.trace.resolve(), args.experimental))

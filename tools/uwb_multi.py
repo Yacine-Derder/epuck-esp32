@@ -9,19 +9,20 @@ SENTINEL = -2147483648
 
 def decode_multi(data, out):
     policy = data[148]
+    experimental = data[11] == 3
     if (data[2] != 3 or data[6] != 2 or data[8] != 2 or data[7] not in (4, 5)
             or policy != (data[7] == 5) or data[149]):
         raise ValueError('multi envelope')
     for key in ('raw_mm', 'calibrated_mm', 'raw_valid', 'calibration', 'calibrated_valid'):
         out.pop(key)
-    out.update(rate_policy='stationary' if policy else 'unknown', source='stm32_onboard',
+    out.update(schedule_profile=3 if experimental else 2, experimental_timing=experimental, rate_policy='stationary' if policy else 'unknown', source='stm32_onboard',
                dtu_nominal_hz=63897600000,
                local_clock_domain=dict(node=out['node'], radio=out['radio'], epoch=out['epoch']))
     if data[3] == 9:
         n = data[137]
         slot = int.from_bytes(data[138:140], 'little')
         revision = int.from_bytes(data[144:148], 'little')
-        if n not in (40, 80, 90) or slot not in (10, 50, 500) or not revision or any(data[40+n:130]):
+        if n not in (40, 80, 90) or (not slot if experimental else slot not in (10, 50, 500)) or not revision or any(data[40+n:130]):
             raise ValueError('multi raw envelope')
         out.update(multi_frame=data[40:40+n].hex().upper(), multi_length=n,
                    rx=f'{int.from_bytes(data[130:135], "little"):010X}',
@@ -33,8 +34,9 @@ def decode_multi(data, out):
     slot, period = struct.unpack_from('<HH', data, 57)
     count, seen, valid = data[61:64]
     ids = list(data[64:64+count])
-    if (not 2 <= count <= 8 or not revision or period != 1000 or slot not in (10, 50, 500)
-            or (count-1)*slot+20 > 630 or seen >> count or valid >> count or valid & 1
+    if (not 2 <= count <= 8 or not revision
+            or (not 100 <= period <= 2000 or period % 10 or not slot or (count-1)*slot+40 > period if experimental
+                else period != 1000 or slot not in (10, 50, 500) or (count-1)*slot+20 > 630) or seen >> count or valid >> count or valid & 1
             or valid & ~seen or len(set(ids)) != count or 255 in ids or data[4] in ids
             or any(data[64+count:72]) or any(data[72+10*(count-1):142])):
         raise ValueError('multi schedule')

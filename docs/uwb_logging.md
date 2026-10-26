@@ -359,3 +359,31 @@ linear/quadratic forecasts. It never applies a host correction to recorded TDoA
 and does not access devices. Fallback to median during changing apparent rate is
 explicit in the record. Slot/device bias remains confounded without permutation
 and independently measured geometry; a slope is not proof of a clock root cause.
+
+Experimental numerical timing uses quality marker3 in UWB3 vector/raw envelopes.
+Decoded vectors and compact logs include `schedule_profile: 3`,
+`experimental_timing: true`, numerical `slot_ms` and actual `cycle_ms`100..2000.
+Unmarked records retain10/50/500ms spacing and1000ms cycle validation. This marker
+is a protocol identifier, not signal-quality evidence.
+
+Clock type10 v2 includes `sample_period_ms`, `capture_age_ms` and `capture_valid`
+(age<=15ms), preserved in compact JSONL alongside raw reference TX/local RX and
+mapping epoch. V1 records remain readable with null age/validity/period; replay must
+state its assumed legacy period. Valid capture age does not establish clock or
+propagation accuracy. `physical_uncertainty` remains unknown.
+
+Software-only cross-platform checks:
+
+```sh
+# In epuck-stm32; production adapters with simulated RX/time and no devices:
+MUL_TIMING_TRACE=/tmp/timing.uart MUL_MULTI_TRACE=/tmp/compat.uart sh tests/runtime_config/run.sh
+# In epuck-esp32; sockets bind only to loopback:
+python3 tools/verify_multi_replay.py --experimental /tmp/timing.uart
+python3 tools/verify_multi_replay.py /tmp/compat.uart
+```
+
+The experimental check samples a bounded subset from the full five-profile adapter
+trace and exercises the actual ESP parser/queues/TCP reconnect/compact collector.
+Full STM32 scenarios cover2/3/5/7/17ms and100/200/500/1000/2000ms, injected rate/skew,
+RF-OFF persistence, frame preservation and zero RLR transmissions. Simulation is
+not physical DW1000/DW3000 interoperability or short-slot reliability evidence.
