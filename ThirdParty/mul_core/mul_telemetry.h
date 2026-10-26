@@ -7,7 +7,7 @@
 #include "mul_multi_receiver.h"
 #define MUL_TLM_BYTES 152u
 #define MUL_TLM_LINE 310u /* UWB2 + 304 hex + NUL; newline owned by transport */
-enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer,mulTlmHybridRx,mulTlmTdoa,mulTlmVector,mulTlmMultiRx,mulTlmClock};
+enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer,mulTlmHybridRx,mulTlmTdoa,mulTlmVector,mulTlmMultiRx,mulTlmClock,mulTlmPlanVector,mulTlmPlanRx};
 enum {mulTlmRawValid=1,mulTlmCalibration=2,mulTlmCalValid=4,mulTlmStampValid=8,mulTlmTx=16};
 /* UWB3 type7: actual onboard association result, never an ALR-ALR range.
  * INT32_MIN remains the wire sentinel; consumers expose unavailable values null. */

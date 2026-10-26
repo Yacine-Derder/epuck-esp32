@@ -396,9 +396,27 @@ not enable RLR TX. Production STM32 trace replay checks matching5ms schedules
 across numerical broadcast spacings, through the bridge and compact logger.
 
 
-The current shared pin is published LPS `7334036`, adding full-plan codec2/RF4,
-LPS journal support and passive receiver APIs. This is dependency preparation;
-the live STM32 schema/radio adapter and ESP collector do not yet accept generated
-RF4 data or label full-plan vectors. Existing type8/9 telemetry and compatibility
-profiles remain unchanged. Do not decode generated frames under profile3 labels.
+The current shared pin is published LPS `f5bbbec`, adding planned telemetry11/12
+to full-plan codec2/RF4 and passive receiver APIs. STM32 schema9 selection connects
+the RF4 receive path. The bridge prioritizes planned vectors and the collector
+labels `schedule_profile=4`, `fingerprint_scope=ranging_plan`; fingerprints cover
+the full plan. Existing type8/9 profiles remain unchanged. Type11/12 requires
+quality4; unknown/mixed markers and raw RF4/fingerprint disagreement are rejected.
 The bridge remains passive and no hardware operation accompanied this update.
+
+
+Generated-plan software replay (no device endpoint; loopback sockets only):
+
+```sh
+# In epuck-stm32:
+MUL_PLAN_TRACE=/tmp/plan.uart sh tests/runtime_config/run.sh
+# In epuck-esp32:
+python3 tools/verify_multi_replay.py --planned /tmp/plan.uart
+```
+
+This feeds bounded representative actual STM32 adapter output through the ESP
+UART parser, priority queues, TCP reconnect and collector. Raw debug output retains
+native frame bytes/full-plan identity; compact vectors preserve profile4 and
+fingerprint scope. Independent host producer/parser tests coverN2..8 and raw40/80/90.
+Firmware receive tests useN2/4/8 and100/200/1000ms including faults/wrap, with zero
+RLR TX. Active ALR–RLR remains unsupported and its activation is refused.

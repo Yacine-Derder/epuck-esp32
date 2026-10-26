@@ -339,3 +339,12 @@ does not authorize any RLR transmission. Link `mul_plan_protocol.c` and
 `mul_ranging_plan.c` when using `mul_multi_receiver.c`, including legacy users.
 Telemetry type8/9 still describes the prior profiles; adapters must add explicit
 versioned generated-plan labels before forwarding RF4 observations as telemetry.
+
+
+Generated-plan telemetry uses new UWB3 types11(vector)/12(raw), with header quality4
+required. Payload layouts remain152 bytes and match the existing vector/raw fields,
+but fingerprints bind the full plan. Type12 preserves40/80/90 native bytes and
+checks RF4 marker/full fingerprint (and0..31 operation index on TWR). Legacy type8/9
+accept only prior markers0/3; old decoders reject11/12 as unknown. This is a new
+record type rather than reinterpreting legacy10ms timing. Adapters must preserve
+cycle observation uptime, prioritize type11, and label profile4 in host logs.

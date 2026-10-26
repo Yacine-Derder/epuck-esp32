@@ -13,14 +13,26 @@ from pathlib import Path
 import subprocess
 import tempfile
 from uwb_collect import collect, decode
+from uwb_logging import CompactLog
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def replay(path, experimental=False):
+async def replay(path, experimental=False, planned=False):
     lines = path.read_text().splitlines()
     decoded = [decode(line.strip()) for line in lines]
-    if experimental:
+    if planned:
+        chosen = []
+        for i, row in enumerate(decoded):
+            if row['type'] == 'tdoa_vector' and row['schedule_profile'] == 4:
+                if row['cycle'] == 10: # Final converged cycle, both policies/all sizes.
+                    chosen.extend(lines[max(0, i-row['alr_count']-1):i+1])
+                elif row['cycle'] in (1, 3): # Wrong-plan and missing-follower vectors.
+                    chosen.append(lines[i])
+        lines = chosen
+        expected = [decode(line) for line in lines]
+        assert 0 < len(expected) < 128
+    elif experimental:
         # Keep two cycles per timing profile, including raw and clock observations,
         # inside the bounded bridge fixture; full adapter scenarios run upstream.
         chosen = []
@@ -55,7 +67,7 @@ async def replay(path, experimental=False):
         output = io.StringIO()
         try:
             port = int(process.stdout.readline())
-            task = asyncio.create_task(collect(f'127.0.0.1:{port}', output, stop))
+            task = asyncio.create_task(collect(f'127.0.0.1:{port}', output, stop, raw=planned))
             async def finished():
                 while process.poll() is None:
                     await asyncio.sleep(.02)
@@ -70,6 +82,18 @@ async def replay(path, experimental=False):
                 process.terminate()
             process.wait(timeout=3)
     rows = list(map(json.loads, output.getvalue().splitlines()))
+    if planned:
+        raw_rows = [row for row in rows if row.get('type') == 'multi_rx']
+        raw_expected = [row for row in expected if row['type'] == 'multi_rx']
+        assert len(raw_rows) >= len(raw_expected) > 0
+        for actual, original in zip(raw_rows, raw_expected):
+            for key in ('multi_frame', 'multi_length', 'schedule_fingerprint', 'schedule_profile', 'fingerprint_scope', 'rx'):
+                assert actual[key] == original[key], key
+        compact_output = io.StringIO()
+        compact = CompactLog(compact_output, 'loopback-test')
+        for row in rows:
+            compact.accept(row)
+        rows = list(map(json.loads, compact_output.getvalue().splitlines()))
     vectors = [row for row in rows if row['type'] == 'tdoa_vector']
     original_vectors = [row for row in expected if row['type'] == 'tdoa_vector']
     assert len(vectors) >= len(original_vectors), (len(vectors), len(original_vectors))
@@ -77,7 +101,14 @@ async def replay(path, experimental=False):
         for key in ('cycle', 'followers', 'alr_ids', 'schedule_revision', 'schedule_fingerprint', 'seen_mask', 'valid_mask', 'slot_ms', 'cycle_ms'):
             assert actual[key] == original[key], key
     assert any(row['valid_mask'] for row in vectors)
-    if experimental:
+    if planned:
+        assert {len(row['alr_ids']) for row in vectors} == {2, 4, 8}
+        assert {row['cycle_ms'] for row in vectors} == {100, 200, 1000}
+        assert all(row['schedule_profile'] == 4 and row['fingerprint_scope'] == 'ranging_plan' for row in vectors)
+        assert any(any(f['reason_name'] == 'schedule_mismatch' for f in row['followers']) for row in vectors)
+        assert any(any(f['reason_name'] == 'missing' for f in row['followers']) for row in vectors)
+        print(f'PASS: {len(expected)} planned STM32 RF4 records through ESP UART/queues/TCP reconnect/compact JSON; full-plan identity, N2/4/8,100/200/1000ms and validity preserved')
+    elif experimental:
         assert {row['cycle_ms'] for row in vectors} == {100, 200, 500, 1000, 2000}
         assert {row['slot_ms'] for row in vectors} == {2, 3, 5, 7, 17}
         assert all(row['experimental_timing'] and row['schedule_profile'] == 3 for row in vectors)
@@ -99,6 +130,8 @@ async def replay(path, experimental=False):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('trace', type=Path)
-    parser.add_argument('--experimental', action='store_true')
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument('--experimental', action='store_true')
+    mode.add_argument('--planned', action='store_true')
     args = parser.parse_args()
-    asyncio.run(replay(args.trace.resolve(), args.experimental))
+    asyncio.run(replay(args.trace.resolve(), args.experimental, args.planned))

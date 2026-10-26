@@ -4,8 +4,11 @@
 static void put(uint8_t *p,uint64_t v,unsigned n){for(unsigned i=0;i<n;i++)p[i]=(uint8_t)(v>>(8*i));}
 static uint64_t get(const uint8_t *p,unsigned n){uint64_t v=0;for(unsigned i=0;i<n;i++)v|=(uint64_t)p[i]<<(8*i);return v;}
 uint16_t mulTelemetryCrc(const uint8_t *p,size_t n){uint16_t c=0xffff;for(size_t i=0;i<n;i++){c^=(uint16_t)p[i]<<8;for(unsigned j=0;j<8;j++)c=(uint16_t)((c<<1)^((c&0x8000)?0x1021:0));}return c;}
+static bool vectorRecord(const mulTelemetry_t *r){return r->type==mulTlmVector||r->type==mulTlmPlanVector;}
+static bool rawRecord(const mulTelemetry_t *r){return r->type==mulTlmMultiRx||r->type==mulTlmPlanRx;}
+static bool plannedRecord(const mulTelemetry_t *r){return r->type==mulTlmPlanVector||r->type==mulTlmPlanRx;}
 static bool valid(const mulTelemetry_t *r){
- if(!r||r->type<1||r->type>10||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
+ if(!r||r->type<1||r->type>12||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
  if(r->type==mulTlmHybridRx&&((r->legacyLength!=34&&r->legacyLength!=74&&r->legacyLength!=84)||
     r->legacyRx>UINT64_C(0xffffffffff)||r->ratePolicy>1||
     (r->legacySlotMs!=500&&r->legacySlotMs!=50&&r->legacySlotMs!=10)))return false;
@@ -23,15 +26,23 @@ static bool valid(const mulTelemetry_t *r){
     (available?(t->tdoaDtu==INT32_MIN||t->rangeDifferenceMm==INT32_MIN):
       (t->tdoaDtu!=INT32_MIN||t->rangeDifferenceMm!=INT32_MIN)))return false;
  }
- if(r->type==mulTlmVector||r->type==mulTlmMultiRx) {
+ if(vectorRecord(r)||rawRecord(r)) {
   if(r->radio!=2||r->role!=2||(r->mode!=4&&r->mode!=5)||r->ratePolicy!=(r->mode==5))return false;
+  if(plannedRecord(r)?r->quality!=4:(r->quality!=0&&r->quality!=3))return false;
  }
- if(r->type==mulTlmMultiRx&&((r->legacyLength!=40&&r->legacyLength!=80&&r->legacyLength!=90)||
+ if(r->type==mulTlmPlanRx) {
+  unsigned n=r->legacyLength;
+  if(n!=40&&n!=80&&n!=90)return false;
+  const uint8_t *f=r->legacyFrame;
+  if(n==90?(f[84]!=MUL_PLAN_RADIO_VERSION||f[85]>=MUL_PLAN_MAX_OPERATIONS||get(f+86,4)!=r->scheduleFingerprint):
+    (f[34]!=MUL_PLAN_RADIO_VERSION||get(f+36,4)!=r->scheduleFingerprint))return false;
+ }
+ if(rawRecord(r)&&((r->legacyLength!=40&&r->legacyLength!=80&&r->legacyLength!=90)||
     r->legacyRx>UINT64_C(0xffffffffff)||!r->scheduleRevision||
-    (r->quality==3?!r->legacySlotMs:(r->legacySlotMs!=10&&r->legacySlotMs!=50&&r->legacySlotMs!=500))))return false;
- if(r->type==mulTlmVector) {
+    ((r->quality==3||plannedRecord(r))?!r->legacySlotMs:(r->legacySlotMs!=10&&r->legacySlotMs!=50&&r->legacySlotMs!=500))))return false;
+ if(vectorRecord(r)) {
   const mulMultiCycle_t *v=&r->vector;
-  if(v->count<2||v->count>8||!v->revision||(r->quality==3?(v->periodMs<100||v->periodMs>2000||v->periodMs%10||!v->slotMs||(v->count-1)*v->slotMs+40>v->periodMs):
+  if(v->count<2||v->count>8||!v->revision||((r->quality==3||plannedRecord(r))?(v->periodMs<100||v->periodMs>2000||v->periodMs%10||!v->slotMs||(plannedRecord(r)?(v->count-1)*v->slotMs+20>=v->periodMs:(v->count-1)*v->slotMs+40>v->periodMs)):
     (v->periodMs!=1000||(v->slotMs!=10&&v->slotMs!=50&&v->slotMs!=500)||(v->count-1)*v->slotMs+20>630))||
     v->referenceRx>UINT64_C(0xffffffffff)||v->seenMask>>v->count||v->validMask>>v->count||
     (v->validMask&1)||v->validMask&~v->seenMask)return false;
@@ -86,7 +97,7 @@ bool mulTelemetryEncode(char *line,size_t capacity,const mulTelemetry_t *r){
   b[112]=t->delayState;b[113]=t->unknownComponents;b[114]=t->powerFlags;
   put(b+118,r->radioErrors,4);put(b+122,r->timeouts,4);put(b+126,r->txDropped,4);
  }
- if(r->type==mulTlmVector) {
+ if(vectorRecord(r)) {
   const mulMultiCycle_t *v=&r->vector;memset(b+40,0,110);b[2]=3;
   put(b+40,v->cycle,4);put(b+44,v->fingerprint,4);put(b+48,v->revision,4);put(b+52,v->referenceRx,5);
   put(b+57,v->slotMs,2);put(b+59,v->periodMs,2);b[61]=v->count;b[62]=v->seenMask;b[63]=v->validMask;
@@ -98,7 +109,7 @@ bool mulTelemetryEncode(char *line,size_t capacity,const mulTelemetry_t *r){
   }
   put(b+142,r->dropped,4);b[146]=r->depth>255?255:r->depth;b[147]=r->highWater>255?255:r->highWater;b[148]=r->ratePolicy;
  }
- if(r->type==mulTlmMultiRx) {
+ if(rawRecord(r)) {
   memset(b+40,0,110);b[2]=3;memcpy(b+40,r->legacyFrame,r->legacyLength);
   put(b+130,r->legacyRx,5);put(b+135,r->captureAgeMs,2);b[137]=r->legacyLength;
   put(b+138,r->legacySlotMs,2);put(b+140,r->scheduleFingerprint,4);put(b+144,r->scheduleRevision,4);b[148]=r->ratePolicy;
@@ -136,7 +147,7 @@ bool mulTelemetryDecode(const char *line,mulTelemetry_t *r){
   if(!valid(&d))return false;
   *r=d;return true;
  }
- if(d.type==mulTlmVector) {
+ if(vectorRecord(&d)) {
   if(b[2]!=3||b[149]||b[61]<2||b[61]>8)return false;
   mulMultiCycle_t *v=&d.vector;
   v->cycle=(uint32_t)get(b+40,4);v->fingerprint=(uint32_t)get(b+44,4);v->revision=(uint32_t)get(b+48,4);
@@ -152,7 +163,7 @@ bool mulTelemetryDecode(const char *line,mulTelemetry_t *r){
   if(!valid(&d))return false;
   *r=d;return true;
  }
- if(d.type==mulTlmMultiRx) {
+ if(rawRecord(&d)) {
   if(b[2]!=3||b[149]||b[137]>90)return false;
   d.legacyLength=b[137];memcpy(d.legacyFrame,b+40,d.legacyLength);d.legacyRx=get(b+130,5);
   d.captureAgeMs=(uint16_t)get(b+135,2);d.legacySlotMs=(uint16_t)get(b+138,2);
