@@ -348,3 +348,20 @@ checks RF4 marker/full fingerprint (and0..31 operation index on TWR). Legacy typ
 accept only prior markers0/3; old decoders reject11/12 as unknown. This is a new
 record type rather than reinterpreting legacy10ms timing. Adapters must preserve
 cycle observation uptime, prioritize type11, and label profile4 in host logs.
+
+
+UWB3 type13 is a planned AR result, quality4, receiver radio2/role2, remote radio1,
+flags9 (raw valid + verified stamps). Uptime is acquired P2 receiver uptime;
+reported uptime is separate. Payload: cycle40/hash44/revision48, pair52/53, op54,
+reply55, raw/power-adjusted initiator ToF56/58, report uptime60, six5-byte mixed-clock
+stamps64, three5-byte power records94, unknown255/source1/version1 at109..111,
+queue/loss metadata112..127 and completion/abort/rejection counters128..139; zero140..149.
+P1/P4/P5 belong to the initiator; P2/P3/P6 belong to the receiver. No calibrated SI
+range or finite physical uncertainty is implied. Old parsers reject the new type.
+
+Type14 is reset-tagged AR quality, quality4/flags0/peer255. Hash40/revision44/cycle48,
+eleven counters52..95 (attempts/completed/aborted/rejected/math-invalid/result-loss/
+raw-loss/late/radio-errors/timeouts/reset-generation), active/pending/reference96..98,
+zero99, last-reason100/op101/stage102/enabled103/version1 at104; zero105..149.
+Reason enums are explicit, counts are per receiver session/reset generation, and
+busy reset must not erase transaction identity. Both records remain152 bytes.

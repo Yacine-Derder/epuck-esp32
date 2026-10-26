@@ -39,6 +39,9 @@ def decode_multi(data, out):
                    capture_age_ms=int.from_bytes(data[135:137], 'little'), slot_ms=slot,
                    schedule_fingerprint=f'{int.from_bytes(data[140:144], "little"):08X}',
                    schedule_revision=revision)
+        if planned:
+            marker=out['rx'];tx=bool(data[9]&16)
+            out.update(direction='tx' if tx else 'rx',marker_dtu=marker,tx=marker if tx else None,rx=None if tx else marker)
         return out
     cycle, fingerprint, revision = struct.unpack_from('<III', data, 40)
     slot, period = struct.unpack_from('<HH', data, 57)

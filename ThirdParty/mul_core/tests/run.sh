@@ -51,3 +51,6 @@ cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-p
 cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
  -I. tests/test_plan_telemetry.c mul_telemetry.c -o "$work/plan_telemetry"
 "$work/plan_telemetry"
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
+ -I. tests/test_ar_telemetry.c mul_telemetry.c -o "$work/ar_telemetry"
+"$work/ar_telemetry"

@@ -18,10 +18,13 @@ from uwb_logging import CompactLog
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def replay(path, experimental=False, planned=False):
+async def replay(path, experimental=False, planned=False, ar=False):
     lines = path.read_text().splitlines()
     decoded = [decode(line.strip()) for line in lines]
-    if planned:
+    if ar:
+        expected=decoded
+        assert 0<len(expected)<128 and any(r["type"]=="ar_range" for r in expected)
+    elif planned:
         chosen = []
         for i, row in enumerate(decoded):
             if row['type'] == 'tdoa_vector' and row['schedule_profile'] == 4:
@@ -67,7 +70,7 @@ async def replay(path, experimental=False, planned=False):
         output = io.StringIO()
         try:
             port = int(process.stdout.readline())
-            task = asyncio.create_task(collect(f'127.0.0.1:{port}', output, stop, raw=planned))
+            task = asyncio.create_task(collect(f'127.0.0.1:{port}', output, stop, raw=planned or ar))
             async def finished():
                 while process.poll() is None:
                     await asyncio.sleep(.02)
@@ -82,6 +85,23 @@ async def replay(path, experimental=False, planned=False):
                 process.terminate()
             process.wait(timeout=3)
     rows = list(map(json.loads, output.getvalue().splitlines()))
+    if ar:
+        for kind,keys in (
+            ('ar_range',('cycle','initiator_node','responder_node','operation','raw_tof_dtu','tof_dtu','stamps','power','acquisition_uptime_ms','reported_uptime_ms','physical_uncertainty','stamp_clock_nodes','schedule_fingerprint')),
+            ('ar_quality',('attempts','completed','aborted','rejected','reset_generation','last_reason','raw_dropped','result_dropped')),
+            ('multi_rx',('multi_frame','direction','marker_dtu','rx','tx','schedule_fingerprint'))):
+            actual=[r for r in rows if r.get('type')==kind];original=[r for r in expected if r['type']==kind]
+            assert len(actual)>=len(original)>0,(kind,len(actual),len(original))
+            for a,b in zip(actual,original):
+                for key in keys:assert a[key]==b[key],(kind,key)
+        compact_output=io.StringIO();compact=CompactLog(compact_output,'loopback-test')
+        for row in rows:compact.accept(row)
+        compact_rows=list(map(json.loads,compact_output.getvalue().splitlines()))
+        ranges=[r for r in compact_rows if r['type']=='ar_range']
+        assert len(ranges)>=3 and all(r['physical_uncertainty']=='UNKNOWN' and not r['calibrated'] for r in ranges)
+        assert any(r['direction']=='tx' for r in expected if r['type']=='multi_rx')
+        print(f'PASS: {len(expected)} actual STM32 AR range/quality/raw records through ESP UART/priority/TCP reconnect/debug+compact JSON; mixed clock stamps, TX/RX markers, acquired time and reset counters preserved')
+        return
     if planned:
         raw_rows = [row for row in rows if row.get('type') == 'multi_rx']
         raw_expected = [row for row in expected if row['type'] == 'multi_rx']
@@ -133,5 +153,6 @@ if __name__ == '__main__':
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument('--experimental', action='store_true')
     mode.add_argument('--planned', action='store_true')
+    mode.add_argument('--ar', action='store_true')
     args = parser.parse_args()
-    asyncio.run(replay(args.trace.resolve(), args.experimental, args.planned))
+    asyncio.run(replay(args.trace.resolve(), args.experimental, args.planned, args.ar))

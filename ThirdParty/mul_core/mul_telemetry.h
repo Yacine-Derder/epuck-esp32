@@ -7,7 +7,7 @@
 #include "mul_multi_receiver.h"
 #define MUL_TLM_BYTES 152u
 #define MUL_TLM_LINE 310u /* UWB2 + 304 hex + NUL; newline owned by transport */
-enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer,mulTlmHybridRx,mulTlmTdoa,mulTlmVector,mulTlmMultiRx,mulTlmClock,mulTlmPlanVector,mulTlmPlanRx};
+enum {mulTlmSummary=1,mulTlmRange,mulTlmEvent,mulTlmObservation,mulTlmPeer,mulTlmHybridRx,mulTlmTdoa,mulTlmVector,mulTlmMultiRx,mulTlmClock,mulTlmPlanVector,mulTlmPlanRx,mulTlmPlanRange,mulTlmPlanQuality};
 enum {mulTlmRawValid=1,mulTlmCalibration=2,mulTlmCalValid=4,mulTlmStampValid=8,mulTlmTx=16};
 /* UWB3 type7: actual onboard association result, never an ALR-ALR range.
  * INT32_MIN remains the wire sentinel; consumers expose unavailable values null. */
@@ -24,7 +24,20 @@ typedef struct {
  int32_t appliedPpb,fittedPpb;
  uint8_t reference,method,window,count,inliers,status,ready,applied,fallback,compensated,version;
 } mulClockTelemetry_t;
+enum {mulArNone,mulArBroadcast,mulArClock,mulArDeadline,mulArRadio,mulArAntenna,
+ mulArTarget,mulArLate,mulArStart,mulArTxStamp,mulArPacket,mulArMath,mulArRearm,mulArEncode,mulArStaleTx,mulArCancelled};
 typedef struct {
+ uint32_t cycle,fingerprint,revision,reportedMs;
+ mulPower_t power[3];
+ uint16_t rawTof,tof;
+ uint8_t initiator,responder,operation,replyMs,unknownComponents,source,version;
+} mulPlanRangeTelemetry_t;
+typedef struct {
+ uint32_t fingerprint,revision,cycle,resultDropped,rawDropped,late,reset;
+ uint8_t active,pending,reference,lastReason,operation,stage,enabled;
+} mulPlanQualityTelemetry_t;
+typedef struct {
+ mulPlanRangeTelemetry_t planRange;mulPlanQualityTelemetry_t planQuality;
  mulTdoaTelemetry_t tdoa;
  mulClockTelemetry_t clock;
  mulMultiCycle_t vector;

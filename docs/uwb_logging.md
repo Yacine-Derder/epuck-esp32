@@ -396,7 +396,7 @@ not enable RLR TX. Production STM32 trace replay checks matching5ms schedules
 across numerical broadcast spacings, through the bridge and compact logger.
 
 
-The current shared pin is published LPS `f5bbbec`, adding planned telemetry11/12
+The planned receive checkpoint used published LPS `f5bbbec`, adding planned telemetry11/12
 to full-plan codec2/RF4 and passive receiver APIs. STM32 schema9 selection connects
 the RF4 receive path. The bridge prioritizes planned vectors and the collector
 labels `schedule_profile=4`, `fingerprint_scope=ranging_plan`; fingerprints cover
@@ -419,4 +419,33 @@ UART parser, priority queues, TCP reconnect and collector. Raw debug output reta
 native frame bytes/full-plan identity; compact vectors preserve profile4 and
 fingerprint scope. Independent host producer/parser tests coverN2..8 and raw40/80/90.
 Firmware receive tests useN2/4/8 and100/200/1000ms including faults/wrap, with zero
-RLR TX. Active ALR–RLR remains unsupported and its activation is refused.
+RLR TX in that receive-only fixture. The AR fixture below covers assigned TX.
+
+
+Shared core `9935db3` adds AR range13 and quality14. These strict quality4
+records retain profile4/full-plan scope. Essential range13 takes priority over
+optional debug traces in STM32 and ESP queues. Debug and compact JSON preserve
+raw/corrected initiator-DTU ToF, nominal range conversion, six mixed-clock stamps
+and their node identities, power status, acquisition/report uptimes, reply/pair/op
+and UNKNOWN physical uncertainty. `calibrated` is false; no ADS-only correction
+is inferred. `ar_quality` exposes responder failures/drop/reset counters.
+`reference_seen` means a reference was observed, not that its map is fresh.
+
+Type12 planned traces now explicitly identify RX versus verified TX and
+`marker_dtu`; TX has `tx` set and `rx` null. Acquisition/report times are receiver
+uptime; host UTC remains reception time. Compact output retains the raw range
+evidence for later analysis. Older decoders reject13/14 rather than interpreting
+them as passive TDoA. Ordinary hybrid NO_RATE is unchanged.
+
+```sh
+# STM32 host simulation; no devices:
+MUL_AR_TRACE=/tmp/ar.uart bash tests/runtime_config/run.sh
+# ESP actual transport + collector, loopback only:
+python3 tools/verify_multi_replay.py --ar /tmp/ar.uart
+```
+
+The AR fixture configures, saves, enables and reboots mixed AA/AR plans with
+multiple RLR assignments, then simulates five-message exchanges and queue loss.
+It verifies26 delivered records through UART framing, priority queues, TCP
+reconnect and both log formats. This is software verification, not physical
+interoperability or calibrated range-accuracy evidence.

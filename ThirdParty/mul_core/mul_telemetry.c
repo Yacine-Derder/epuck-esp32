@@ -8,7 +8,33 @@ static bool vectorRecord(const mulTelemetry_t *r){return r->type==mulTlmVector||
 static bool rawRecord(const mulTelemetry_t *r){return r->type==mulTlmMultiRx||r->type==mulTlmPlanRx;}
 static bool plannedRecord(const mulTelemetry_t *r){return r->type==mulTlmPlanVector||r->type==mulTlmPlanRx;}
 static bool valid(const mulTelemetry_t *r){
- if(!r||r->type<1||r->type>12||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
+ if(!r||r->type<1||r->type>14||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
+ if(r->type==mulTlmPlanRange||r->type==mulTlmPlanQuality) {
+  if(r->quality!=4||r->radio!=2||r->role!=2||(r->mode!=4&&r->mode!=5)||r->node==255||r->remoteRadio!=1)return false;
+ }
+ if(r->type==mulTlmPlanRange) {
+  const mulPlanRangeTelemetry_t *p=&r->planRange;
+  if(r->flags!=(mulTlmRawValid|mulTlmStampValid)||p->version!=1||p->source!=1||p->unknownComponents!=255||
+    !p->revision||p->initiator==p->responder||p->initiator==255||p->responder!=r->node||p->initiator!=r->peer||
+    p->operation>=32||(p->replyMs!=5&&p->replyMs!=10&&p->replyMs!=20)||p->rawTof>63898||p->tof>63898||
+    (uint32_t)(p->reportedMs-r->uptimeMs)>200||r->transaction!=p->cycle)return false;
+  bool corrected=true;
+  for(unsigned i=0;i<3;i++) {
+   const mulPower_t *q=&p->power[i];
+   if(q->status>mulPowerUnsupported||q->table>2||q->deltaDtu < -64||q->deltaDtu>64||
+     (q->status!=mulPowerApplied&&q->deltaDtu)||
+     (q->status==mulPowerApplied&&(!q->table||q->powerCentiDbm < -9500||q->powerCentiDbm > -6100))||
+     (q->status==mulPowerMissing&&(q->table||q->powerCentiDbm||q->deltaDtu)))return false;
+   if(q->status!=mulPowerApplied)corrected=false;
+  }
+  if(!corrected&&p->tof!=p->rawTof)return false;
+ }
+ if(r->type==mulTlmPlanQuality) {
+  const mulPlanQualityTelemetry_t *p=&r->planQuality;
+  if(r->flags||r->peer!=255||!p->revision||p->active>1||p->pending>1||p->reference>1||p->enabled>1||
+    (p->pending&&!p->active)||(p->active&&(!p->enabled||!p->reference))||p->lastReason>mulArCancelled||(p->operation!=255&&p->operation>=32)||
+    (p->stage&& (p->stage<mulTwrPoll||p->stage>mulTwrResult)))return false;
+ }
  if(r->type==mulTlmHybridRx&&((r->legacyLength!=34&&r->legacyLength!=74&&r->legacyLength!=84)||
     r->legacyRx>UINT64_C(0xffffffffff)||r->ratePolicy>1||
     (r->legacySlotMs!=500&&r->legacySlotMs!=50&&r->legacySlotMs!=10)))return false;
@@ -114,6 +140,24 @@ bool mulTelemetryEncode(char *line,size_t capacity,const mulTelemetry_t *r){
   put(b+130,r->legacyRx,5);put(b+135,r->captureAgeMs,2);b[137]=r->legacyLength;
   put(b+138,r->legacySlotMs,2);put(b+140,r->scheduleFingerprint,4);put(b+144,r->scheduleRevision,4);b[148]=r->ratePolicy;
  }
+ if(r->type==mulTlmPlanRange) {
+  const mulPlanRangeTelemetry_t *p=&r->planRange;memset(b+40,0,110);b[2]=3;
+  put(b+40,p->cycle,4);put(b+44,p->fingerprint,4);put(b+48,p->revision,4);
+  b[52]=p->initiator;b[53]=p->responder;b[54]=p->operation;b[55]=p->replyMs;
+  put(b+56,p->rawTof,2);put(b+58,p->tof,2);put(b+60,p->reportedMs,4);
+  for(unsigned i=0;i<6;i++)put(b+64+5*i,r->stamps[i],5);
+  for(unsigned i=0;i<3;i++){const mulPower_t *q=&p->power[i];unsigned at=94+5*i;put(b+at,(uint16_t)q->powerCentiDbm,2);b[at+2]=(uint8_t)q->deltaDtu;b[at+3]=q->status;b[at+4]=q->table;}
+  b[109]=p->unknownComponents;b[110]=p->source;b[111]=p->version;
+  put(b+112,r->dropped,4);put(b+116,r->uartErrors,4);put(b+120,r->txDropped,4);put(b+124,r->depth,2);put(b+126,r->highWater,2);
+  put(b+128,r->completed,4);put(b+132,r->aborted,4);put(b+136,r->rejected,4);
+ }
+ if(r->type==mulTlmPlanQuality) {
+  const mulPlanQualityTelemetry_t *p=&r->planQuality;memset(b+40,0,110);b[2]=3;
+  put(b+40,p->fingerprint,4);put(b+44,p->revision,4);put(b+48,p->cycle,4);
+  const uint32_t v[]={r->attempts,r->completed,r->aborted,r->rejected,r->invalid,p->resultDropped,p->rawDropped,p->late,r->radioErrors,r->timeouts,p->reset};
+  for(unsigned i=0;i<11;i++)put(b+52+4*i,v[i],4);
+  b[96]=p->active;b[97]=p->pending;b[98]=p->reference;b[100]=p->lastReason;b[101]=p->operation;b[102]=p->stage;b[103]=p->enabled;b[104]=1;
+ }
  if(r->type==mulTlmClock) {
   const mulClockTelemetry_t *c=&r->clock;memset(b+40,0,110);b[2]=3;
   put(b+40,c->referenceTx,5);put(b+45,c->rawRx,5);put(b+50,c->referenceSequence,4);
@@ -134,6 +178,30 @@ bool mulTelemetryDecode(const char *line,mulTelemetry_t *r){
  if(line[5+2*size]||b[0]!=0x4d||b[1]!=0x54||b[2]!=(unsigned)(line[3]-'0')||get(b+size-2,2)!=mulTelemetryCrc(b,size-2))return false;
  mulTelemetry_t d={.type=b[3],.node=b[4],.peer=b[5],.radio=b[6],.mode=b[7],.role=b[8],.flags=b[9],.remoteRadio=b[10],.quality=b[11]};
  d.sequence=(uint32_t)get(b+12,4);d.epoch=get(b+16,8);d.exchange=get(b+24,8);d.transaction=(uint32_t)get(b+32,4);d.uptimeMs=(uint32_t)get(b+36,4);
+ if(d.type==mulTlmPlanRange) {
+  if(b[2]!=3)return false;
+  for(unsigned i=140;i<150;i++)if(b[i])return false;
+  mulPlanRangeTelemetry_t *p=&d.planRange;
+  p->cycle=(uint32_t)get(b+40,4);p->fingerprint=(uint32_t)get(b+44,4);p->revision=(uint32_t)get(b+48,4);
+  p->initiator=b[52];p->responder=b[53];p->operation=b[54];p->replyMs=b[55];p->rawTof=(uint16_t)get(b+56,2);p->tof=(uint16_t)get(b+58,2);p->reportedMs=(uint32_t)get(b+60,4);
+  for(unsigned i=0;i<6;i++)d.stamps[i]=get(b+64+5*i,5);
+  for(unsigned i=0;i<3;i++){unsigned at=94+5*i;uint16_t bits=(uint16_t)get(b+at,2);p->power[i]=(mulPower_t){.powerCentiDbm=bits<=INT16_MAX?(int16_t)bits:(int16_t)((int32_t)bits-65536),.deltaDtu=b[at+2]<=127?(int8_t)b[at+2]:(int8_t)((int)b[at+2]-256),.status=b[at+3],.table=b[at+4]};}
+  p->unknownComponents=b[109];p->source=b[110];p->version=b[111];
+  d.dropped=(uint32_t)get(b+112,4);d.uartErrors=(uint32_t)get(b+116,4);d.txDropped=(uint32_t)get(b+120,4);d.depth=(uint16_t)get(b+124,2);d.highWater=(uint16_t)get(b+126,2);
+  d.completed=(uint32_t)get(b+128,4);d.aborted=(uint32_t)get(b+132,4);d.rejected=(uint32_t)get(b+136,4);
+  if(!valid(&d))return false;
+  *r=d;return true;
+ }
+ if(d.type==mulTlmPlanQuality) {
+  if(b[2]!=3||b[99]||b[104]!=1)return false;
+  for(unsigned i=105;i<150;i++)if(b[i])return false;
+  mulPlanQualityTelemetry_t *p=&d.planQuality;p->fingerprint=(uint32_t)get(b+40,4);p->revision=(uint32_t)get(b+44,4);p->cycle=(uint32_t)get(b+48,4);
+  uint32_t *v[]={&d.attempts,&d.completed,&d.aborted,&d.rejected,&d.invalid,&p->resultDropped,&p->rawDropped,&p->late,&d.radioErrors,&d.timeouts,&p->reset};
+  for(unsigned i=0;i<11;i++)*v[i]=(uint32_t)get(b+52+4*i,4);
+  p->active=b[96];p->pending=b[97];p->reference=b[98];p->lastReason=b[100];p->operation=b[101];p->stage=b[102];p->enabled=b[103];
+  if(!valid(&d))return false;
+  *r=d;return true;
+ }
  if(d.type==mulTlmClock) {
   if(b[2]!=3)return false;
   if((b[88]!=0&&b[88]!=2)||b[89])return false;

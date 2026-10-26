@@ -90,7 +90,7 @@ class CompactLog:
             return
         event = row['type']
         # Raw packets/peer tables are deliberately omitted from routine experiments.
-        if event not in ('tdoa', 'tdoa_vector', 'clock', 'range', 'summary') and not row.get('missing'):
+        if event not in ('tdoa', 'tdoa_vector', 'clock', 'range', 'summary', 'ar_range', 'ar_quality') and not row.get('missing'):
             return
         sid = self.session(row)
         base = dict(t=t, s=sid)
@@ -128,6 +128,16 @@ class CompactLog:
             if not row['valid']:
                 value.update(status=row['status'], clock=row['clock_valid'], rate=row['rate_state'])
             self.write(value)
+        elif event in ('ar_range','ar_quality'):
+            keys=('cycle','schedule_fingerprint','schedule_revision','schedule_profile','fingerprint_scope','source','physical_uncertainty')
+            if event=='ar_range':
+                keys+=('initiator_node','responder_node','operation','reply_ms','raw_tof_dtu','tof_dtu','raw_range_mm','range_mm',
+                       'reported_uptime_ms','acquisition_uptime_ms','measurement_age_at_report_ms','stamps','stamp_clock_nodes','tof_clock_node',
+                       'power','power_corrected','calibrated','valid','remote_epoch_known')
+            else:
+                keys+=('attempts','completed','aborted','rejected','math_invalid','result_dropped','raw_dropped','late','radio_errors','timeouts',
+                       'reset_generation','active','pending','reference_seen','enabled','last_reason','operation','stage')
+            self.write(dict(base,type=event,u_ms=row['uptime_ms'],**{k:row[k] for k in keys}))
         elif event == 'range':
             calibrated = row['calibration'] and row['calibrated_valid']
             mm = row['calibrated_mm'] if calibrated else row['raw_mm'] if row['raw_valid'] else None
