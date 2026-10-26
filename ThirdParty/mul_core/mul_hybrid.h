@@ -2,6 +2,7 @@
 #ifndef MUL_HYBRID_H
 #define MUL_HYBRID_H
 #include "mul_localization.h"
+#include "mul_clock_fit.h"
 #include "mul_legacy_twr.h"
 /* Protocol-specific receiver, not a new network scheduler. The reference wire
  * roster is explicit per context; legacy init uses84/85. Solvers use full IDs.
@@ -28,6 +29,7 @@ typedef struct {
   mulHybridDiagnostics_t diagnostics;
   mulObservation_t observations[MUL_ALR_COUNT];
   mulAssociation_t association;mulClock_t rate;mulRelation_t relation;
+  mulClockFit_t fit;mulClockFitConfig_t clockConfig;
   mulTwrPacket_t twr;
   uint32_t twrStartedMs,twrGeneration,lastTwrId;
   uint32_t received,rejected,pairs,twrCompleted,twrRejected,twrTimeouts;

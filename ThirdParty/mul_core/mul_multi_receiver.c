@@ -10,7 +10,7 @@ bool mulMultiReceiverInit(mulMultiReceiver_t *s,const mulSchedule_t *schedule,co
  if(receiver[6]!=0xcf||receiver[7]!=0xbc)return false;
  for(unsigned i=1;i<6;i++)if(receiver[i])return false;
  if(mulScheduleIndex(schedule,receiver[0])>=0)return false;
- memset(s,0,sizeof(*s));s->schedule=*schedule;s->stationary=stationary;mulClockReset(&s->rate);
+ memset(s,0,sizeof(*s));s->schedule=*schedule;s->stationary=stationary;mulClockReset(&s->rate);mulClockFitDefaults(&s->clockConfig);mulClockFitReset(&s->fit);
  for(unsigned i=0;i<MUL_MAX_ALRS;i++)memcpy(s->sources[i].receiverClock,receiver,8);
  return true;
 }
@@ -102,7 +102,7 @@ bool mulMultiReceiverReceive(mulMultiReceiver_t *s,const uint8_t *frame,size_t n
   s->cycleStartMs=now;
   mulNetwork_t pair;(void)mulSchedulePair(&s->schedule,1,&pair);
   if(order==mulSequenceFirst)mulClockReset(&s->rate);
-  if(age<=15)mulClockObserveNetwork(&pair,&s->rate,&out->broadcast.packet,rx,now,true);
+  if(age<=15)mulClockObserveFitted(&pair,&s->rate,&s->fit,&s->clockConfig,&out->broadcast.packet,rx,now,true,NULL);
   else mulClockReset(&s->rate);
   for(unsigned i=1;i<s->schedule.count;i++)evaluate(s,i,now);
  } else {

@@ -5,7 +5,7 @@ static void put(uint8_t *p,uint64_t v,unsigned n){for(unsigned i=0;i<n;i++)p[i]=
 static uint64_t get(const uint8_t *p,unsigned n){uint64_t v=0;for(unsigned i=0;i<n;i++)v|=(uint64_t)p[i]<<(8*i);return v;}
 uint16_t mulTelemetryCrc(const uint8_t *p,size_t n){uint16_t c=0xffff;for(size_t i=0;i<n;i++){c^=(uint16_t)p[i]<<8;for(unsigned j=0;j<8;j++)c=(uint16_t)((c<<1)^((c&0x8000)?0x1021:0));}return c;}
 static bool valid(const mulTelemetry_t *r){
- if(!r||r->type<1||r->type>9||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
+ if(!r||r->type<1||r->type>10||r->radio<1||r->radio>2||!r->epoch||r->mode>5||r->role<1||r->role>2||r->flags>31||r->remoteRadio>2)return false;
  if(r->type==mulTlmHybridRx&&((r->legacyLength!=34&&r->legacyLength!=74&&r->legacyLength!=84)||
     r->legacyRx>UINT64_C(0xffffffffff)||r->ratePolicy>1||
     (r->legacySlotMs!=500&&r->legacySlotMs!=50&&r->legacySlotMs!=10)))return false;
@@ -47,6 +47,14 @@ static bool valid(const mulTelemetry_t *r){
      (available?(x->rangeDifferenceMm==INT32_MIN||x->tdoaDtu==INT32_MIN):
        (x->rangeDifferenceMm!=INT32_MIN||x->tdoaDtu!=INT32_MIN||!x->reason)))return false;
   }
+ }
+ if(r->type==mulTlmClock) {
+  const mulClockTelemetry_t *c=&r->clock;
+  if(r->radio!=2||r->role!=2||(r->mode!=4&&r->mode!=5)||c->reference==255||c->reference==r->node||
+   c->referenceTx>UINT64_C(0xffffffffff)||c->rawRx>UINT64_C(0xffffffffff)||c->method>1||c->window<8||c->window>32||
+   c->count>c->window||c->inliers>c->count||c->status>3||c->ready>1||c->applied>1||c->fallback>3||c->compensated>1||
+   c->appliedPpb<-200000||c->appliedPpb>200000||c->fittedPpb<-200000||c->fittedPpb>200000||
+   (c->applied&&(!c->method||!c->ready||c->status!=2||c->fallback)))return false;
  }
  for(unsigned i=0;i<6;i++)if(r->stamps[i]>UINT64_C(0xffffffffff))return false;
  return true;
@@ -95,6 +103,14 @@ bool mulTelemetryEncode(char *line,size_t capacity,const mulTelemetry_t *r){
   put(b+130,r->legacyRx,5);put(b+135,r->captureAgeMs,2);b[137]=r->legacyLength;
   put(b+138,r->legacySlotMs,2);put(b+140,r->scheduleFingerprint,4);put(b+144,r->scheduleRevision,4);b[148]=r->ratePolicy;
  }
+ if(r->type==mulTlmClock) {
+  const mulClockTelemetry_t *c=&r->clock;memset(b+40,0,110);b[2]=3;
+  put(b+40,c->referenceTx,5);put(b+45,c->rawRx,5);put(b+50,c->referenceSequence,4);
+  put(b+54,(uint32_t)c->appliedPpb,4);put(b+58,(uint32_t)c->fittedPpb,4);
+  put(b+62,c->rmsDtu,4);put(b+66,c->rejected,4);put(b+70,c->fitSigmaPpb,4);put(b+74,c->ageMs,4);
+  b[78]=c->reference;b[79]=c->method;b[80]=c->window;b[81]=c->count;b[82]=c->inliers;
+  b[83]=c->status;b[84]=c->ready;b[85]=c->applied;b[86]=c->fallback;b[87]=c->compensated;
+ }
  put(b+150,mulTelemetryCrc(b,150),2);memcpy(line,b[2]==3?"UWB3 ":"UWB2 ",5);
  static const char hex[]="0123456789ABCDEF";for(unsigned i=0;i<152;i++){line[5+2*i]=hex[b[i]>>4];line[6+2*i]=hex[b[i]&15];}line[309]=0;return true;
 }
@@ -106,6 +122,17 @@ bool mulTelemetryDecode(const char *line,mulTelemetry_t *r){
  if(line[5+2*size]||b[0]!=0x4d||b[1]!=0x54||b[2]!=(unsigned)(line[3]-'0')||get(b+size-2,2)!=mulTelemetryCrc(b,size-2))return false;
  mulTelemetry_t d={.type=b[3],.node=b[4],.peer=b[5],.radio=b[6],.mode=b[7],.role=b[8],.flags=b[9],.remoteRadio=b[10],.quality=b[11]};
  d.sequence=(uint32_t)get(b+12,4);d.epoch=get(b+16,8);d.exchange=get(b+24,8);d.transaction=(uint32_t)get(b+32,4);d.uptimeMs=(uint32_t)get(b+36,4);
+ if(d.type==mulTlmClock) {
+  if(b[2]!=3)return false;
+  for(unsigned i=88;i<150;i++)if(b[i])return false;
+  mulClockTelemetry_t *c=&d.clock;
+  c->referenceTx=get(b+40,5);c->rawRx=get(b+45,5);c->referenceSequence=(uint32_t)get(b+50,4);
+  c->appliedPpb=signed32((uint32_t)get(b+54,4));c->fittedPpb=signed32((uint32_t)get(b+58,4));
+  c->rmsDtu=(uint32_t)get(b+62,4);c->rejected=(uint32_t)get(b+66,4);c->fitSigmaPpb=(uint32_t)get(b+70,4);c->ageMs=(uint32_t)get(b+74,4);
+  c->reference=b[78];c->method=b[79];c->window=b[80];c->count=b[81];c->inliers=b[82];c->status=b[83];c->ready=b[84];c->applied=b[85];c->fallback=b[86];c->compensated=b[87];
+  if(!valid(&d))return false;
+  *r=d;return true;
+ }
  if(d.type==mulTlmVector) {
   if(b[2]!=3||b[149]||b[61]<2||b[61]>8)return false;
   mulMultiCycle_t *v=&d.vector;

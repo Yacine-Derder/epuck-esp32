@@ -20,10 +20,12 @@ except ModuleNotFoundError:
 
 try:
     from uwb_multi import decode_multi
+    from uwb_clock import decode_clock
 except ModuleNotFoundError:
     from tools.uwb_multi import decode_multi
+    from tools.uwb_clock import decode_clock
 
-NAMES={1:'summary',2:'range',3:'event',4:'observation',5:'peer',6:'hybrid_rx',7:'tdoa',8:'tdoa_vector',9:'multi_rx'}
+NAMES={1:'summary',2:'range',3:'event',4:'observation',5:'peer',6:'hybrid_rx',7:'tdoa',8:'tdoa_vector',9:'multi_rx',10:'clock'}
 
 def decode(line):
     if not ((line.startswith('UWB1 ') and len(line)==261) or (line.startswith(('UWB2 ','UWB3 ')) and len(line)==309)):
@@ -42,6 +44,8 @@ def decode(line):
              flags=data[9],remote_radio=data[10],quality=data[11],sequence=sequence,epoch=f'{epoch:016X}',exchange=f'{exchange:016X}',
              transaction=transaction,uptime_ms=uptime,raw_mm=raw,calibrated_mm=cal,
              raw_valid=bool(data[9]&1),calibration=bool(data[9]&2),calibrated_valid=bool(data[9]&4))
+    if data[3]==10:
+        return decode_clock(data,out)
     if data[3] in (8,9):
         return decode_multi(data, out)
     if data[3]==7:

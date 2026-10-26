@@ -31,10 +31,10 @@ static void baseline(mulClock_t *clock, const mulTestPacket_t *packet,
   }
 }
 
-mulClockResult_t mulClockObserveNetwork(const mulNetwork_t *network,mulClock_t *clock, const mulTestPacket_t *packet,
-                                uint64_t localRx, uint32_t observedMs, bool valid)
+mulClockResult_t mulClockObservePeriodNetwork(const mulNetwork_t *network,mulClock_t *clock, const mulTestPacket_t *packet,
+                                uint64_t localRx, uint32_t observedMs, bool valid,uint16_t periodMs)
 {
-  if (!valid || packet == NULL || mulNetworkRole(network,packet->source) != mulAlrReference) {
+  if (clock == NULL || periodMs<10 || periodMs>2000 || !valid || packet == NULL || mulNetworkRole(network,packet->source) != mulAlrReference) {
     return mulClockIgnored;
   }
   if (!clock->hasBaseline) {
@@ -54,14 +54,16 @@ mulClockResult_t mulClockObserveNetwork(const mulNetwork_t *network,mulClock_t *
   // apparently small interval after one or more complete hardware-counter wraps.
   // The existing 1 Hz reference advances sequence once per TX attempt. Missing
   // packets use their measured multi-period intervals, never an assumed second.
+  uint64_t periodDtu=periodMs*DTU_PER_MS;
+  uint64_t tolerance=(periodMs/10)*DTU_PER_MS;
   bool plausible = elapsed > 0 && elapsed < MUL_SOURCE_TIMEOUT_MS &&
-    advance <= 3 && remote > 0 && local > 0 &&
-    remote <= (int64_t)(3 * PERIOD_DTU + PERIOD_TOLERANCE) &&
-    local <= (int64_t)(3 * PERIOD_DTU + PERIOD_TOLERANCE);
+    advance <= (MUL_SOURCE_TIMEOUT_MS-1u)/periodMs+1u && remote > 0 && local > 0 &&
+    remote <= (int64_t)(MUL_SOURCE_TIMEOUT_MS * DTU_PER_MS + tolerance) &&
+    local <= (int64_t)(MUL_SOURCE_TIMEOUT_MS * DTU_PER_MS + tolerance);
   if (plausible) {
-    int64_t expected = (int64_t)advance * PERIOD_DTU;
-    plausible = remote >= expected - (int64_t)PERIOD_TOLERANCE &&
-                remote <= expected + (int64_t)PERIOD_TOLERANCE;
+    int64_t expected = (int64_t)advance * periodDtu;
+    plausible = remote >= expected - (int64_t)tolerance &&
+                remote <= expected + (int64_t)tolerance;
   }
   int32_t skew = 0;
   if (plausible) {
@@ -316,3 +318,6 @@ bool mulClockMapRefToFollowerSimultaneous(const mulClock_t *clock, uint64_t refe
   const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping) { return mulClockMapRefToFollowerSimultaneousNetwork(NULL,clock,referenceTx,delay,nowMs,mapping); }
 bool mulClockMapFollowerSimultaneousToRef(const mulClock_t *clock, uint64_t localSimultaneous,
   const mulClockDelay_t *delay, uint32_t nowMs, mulClockCorrectedMapping_t *mapping) { return mulClockMapFollowerSimultaneousToRefNetwork(NULL,clock,localSimultaneous,delay,nowMs,mapping); }
+
+mulClockResult_t mulClockObserveNetwork(const mulNetwork_t *n,mulClock_t *c,const mulTestPacket_t *p,
+ uint64_t rx,uint32_t now,bool valid) {return mulClockObservePeriodNetwork(n,c,p,rx,now,valid,1000);}

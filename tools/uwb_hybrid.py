@@ -21,7 +21,7 @@ class Replay:
         self.generations={};self.slot=slot;self.temp=tempfile.TemporaryDirectory(prefix='mul-hybrid-replay-');self.contexts={}
         core=ROOT/'ThirdParty/mul_core';library=Path(self.temp.name)/'hybrid.so'
         subprocess.run([sys.executable,str(core/'verify.py')],check=True,stdout=subprocess.PIPE)
-        names=['mul_common','mul_clock','mul_relation','mul_observation','mul_downlink','mul_localization','mul_legacy_twr','mul_hybrid']
+        names=['mul_common','mul_clock_fit','mul_clock','mul_relation','mul_observation','mul_downlink','mul_localization','mul_legacy_twr','mul_hybrid']
         subprocess.run(['cc','-std=c11','-O2','-shared','-fPIC',f'-DMUL_FOLLOWER_SLOT_MS={slot}','-DMUL_PROP_MAX_AGE_MS=6000','-I'+str(core),str(ROOT/'tools/native/hybrid_replay.c'),*[str(core/(name+'.c')) for name in names],'-o',str(library)],check=True)
         self.lib=ctypes.CDLL(str(library));self.lib.hybrid_new_network.argtypes=[ctypes.c_uint]*4;self.lib.hybrid_new_network.restype=ctypes.c_void_p
         self.lib.hybrid_free.argtypes=[ctypes.c_void_p]

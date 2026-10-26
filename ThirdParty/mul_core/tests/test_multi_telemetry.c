@@ -38,6 +38,14 @@ int main(int argc,char **argv) {
   assert(decoded.legacyLength==90&&decoded.scheduleRevision==9&&!memcmp(decoded.legacyFrame,r.legacyFrame,90));
   r.type=mulTlmHybridRx;assert(!mulTelemetryEncode(line,sizeof(line),&r));
  }
+ mulTelemetry_t clock={.type=mulTlmClock,.node=141,.radio=2,.role=2,.mode=5,.epoch=7,
+ .clock={.reference=132,.referenceTx=UINT64_C(0xffffffffff),.rawRx=1,.referenceSequence=UINT32_MAX,
+  .appliedPpb=-15,.fittedPpb=-30,.rmsDtu=40,.fitSigmaPpb=UINT32_MAX,.method=1,.window=24,.count=24,.inliers=22,.status=2,.ready=1,.fallback=2}};
+ char line[MUL_TLM_LINE];mulTelemetry_t decoded;
+ assert(mulTelemetryEncode(line,sizeof(line),&clock)&&mulTelemetryDecode(line,&decoded));
+ assert(decoded.clock.referenceTx==clock.clock.referenceTx&&decoded.clock.appliedPpb==-15&&decoded.clock.fitSigmaPpb==UINT32_MAX);
+ clock.clock.applied=1;assert(!mulTelemetryEncode(line,sizeof(line),&clock));clock.clock.fallback=0;
+ assert(mulTelemetryEncode(line,sizeof(line),&clock));clock.clock.count=25;assert(!mulTelemetryEncode(line,sizeof(line),&clock));
  if(argc==1)puts("Multi telemetry: bounded152-byte vector/raw90, N2/3/4/8, mixed validity, no-rate, legacy rejection and32/40-bit wrap passed");
  return 0;
 }

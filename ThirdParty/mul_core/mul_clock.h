@@ -46,6 +46,10 @@ mulClockResult_t mulClockObserve(mulClock_t *clock, const mulTestPacket_t *packe
 mulClockResult_t mulClockObserveNetwork(const mulNetwork_t *network,mulClock_t *clock, const mulTestPacket_t *packet,
                                 uint64_t localRx, uint32_t observedMs, bool valid);
 
+// Explicit period variant; legacy APIs continue to require1000ms.
+mulClockResult_t mulClockObservePeriodNetwork(const mulNetwork_t *network,mulClock_t *clock,
+ const mulTestPacket_t *packet,uint64_t localRx,uint32_t observedMs,bool valid,uint16_t periodMs);
+
 // Arrival-aligned mapping ONLY: full reference identity 84:00:00:00:00:00:cf:bc
 // to follower 85:00:00:00:00:00:cf:bc. Existing observation/slope fields are the
 // mapping origin; no absolute intercept or independently duplicated state.

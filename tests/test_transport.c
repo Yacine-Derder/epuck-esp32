@@ -111,6 +111,7 @@ static void priority_tests(void) {
  for(unsigned cycle=0;cycle<600;cycle++) {
    mock_time+=1000;last_telemetry_stats=mock_time;
    mulTelemetry_t summary={.type=mulTlmSummary,.node=141,.peer=133,.radio=2,.mode=5,.role=2,.epoch=99};
+   if(cycle%2) {summary.type=mulTlmClock;summary.clock=(mulClockTelemetry_t){.reference=132,.window=24,.fallback=1,.fitSigmaPpb=UINT32_MAX};}
    assert(mulTelemetryEncode(line,sizeof(line),&summary));
    for(unsigned i=0;i<BRIDGE_SLOTS;i++)uart_record(line);
    mulTelemetry_t r=observation;r.sequence=cycle;

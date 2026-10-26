@@ -334,3 +334,28 @@ Optional `--metadata experiment.json` copies an experiment JSON object (up to64K
 into the capture header, or a raw experiment record. Example fields are
 `experiment_id`, `alr_positions_m`, and `rlr_ground_truth_m`; metadata never affects
 measurements or robot configuration.
+
+### Clock-estimator campaign records
+
+With the updated STM32/ESP pair, `cfg set samples on` enables optional UWB3 type10
+`clock` records. Compact JSONL retains raw reference TX and local RX as exact
+40-bit integers, reference sequence, applied/fitted ppb, residual RMS, window,
+count/inliers/rejections, fit-ready versus actually-applied, fallback reason,
+mapping age/status and clock-epoch identity. Unknown sigma becomes null; conditional
+fit scatter excludes drift, propagation and geometry and is not physical accuracy.
+Default samples-off queue behavior and all previous record types remain unchanged.
+
+`cfg set clock_estimator median|regression` and `cfg set clock_window 8..32` require
+RF OFF. Use `clock show` for a saved/live snapshot. Both clock streams can be
+replayed with the canonical production-core tool in lps-node-firmware:
+
+```
+python3 tools/mul_clock_replay.py --summary ../uwb_logs/alr133.log
+python3 tools/mul_clock_replay.py --summary ../uwb_logs/EXPERIMENT-compact.jsonl
+```
+
+The tool compares the actual median and robust regression, plus held-out offline
+linear/quadratic forecasts. It never applies a host correction to recorded TDoA
+and does not access devices. Fallback to median during changing apparent rate is
+explicit in the record. Slot/device bias remains confounded without permutation
+and independently measured geometry; a slope is not proof of a clock root cause.

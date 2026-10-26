@@ -90,7 +90,7 @@ class CompactLog:
             return
         event = row['type']
         # Raw packets/peer tables are deliberately omitted from routine experiments.
-        if event not in ('tdoa', 'tdoa_vector', 'range', 'summary') and not row.get('missing'):
+        if event not in ('tdoa', 'tdoa_vector', 'clock', 'range', 'summary') and not row.get('missing'):
             return
         sid = self.session(row)
         base = dict(t=t, s=sid)
@@ -99,7 +99,15 @@ class CompactLog:
         if row.get('sequence_status') in ('duplicate', 'old'):
             self.write(dict(base, type='ordering', state=row['sequence_status'], seq=row['sequence']))
             return
-        if event == 'tdoa_vector':
+        if event == 'clock':
+            fields = ('reference_node', 'reference_sequence', 'reference_tx_dtu', 'local_rx_dtu',
+                      'applied_ppb', 'fitted_ppb', 'residual_rms_dtu', 'rejected_samples', 'fit_sigma_ppb',
+                      'mapping_age_ms', 'clock_estimator', 'clock_window', 'observation_count', 'inlier_count',
+                      'mapping_status', 'fit_ready', 'fit_applied', 'fallback', 'propagation_compensated',
+                      'mapping_epoch', 'physical_uncertainty', 'fit_uncertainty_scope')
+            self.write(dict(base, type='clock', node=row['node'], radio=row['radio'], epoch=row['epoch'],
+                            u_ms=row['uptime_ms'], **{field: row[field] for field in fields}))
+        elif event == 'tdoa_vector':
             self.write(dict(base, type='tdoa_vector', cycle=row['cycle'], u_ms=row['uptime_ms'],
                             reference_node=row['reference_node'], alr_ids=row['alr_ids'],
                             schedule_revision=row['schedule_revision'], schedule_fingerprint=row['schedule_fingerprint'],

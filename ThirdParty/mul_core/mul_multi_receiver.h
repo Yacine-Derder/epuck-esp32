@@ -3,6 +3,7 @@
 #define MUL_MULTI_RECEIVER_H
 #include "mul_multi_protocol.h"
 #include "mul_localization.h"
+#include "mul_clock_fit.h"
 typedef enum {
  mulMultiOk=0,mulMultiMissing,mulMultiNoReference,mulMultiCaptureAge,
  mulMultiScheduleMismatch,mulMultiClockUnavailable,mulMultiNoRate,
@@ -18,6 +19,7 @@ typedef struct {
 } mulMultiCycle_t;
 typedef struct {
  mulSchedule_t schedule;mulClock_t rate;
+ mulClockFit_t fit;mulClockFitConfig_t clockConfig;
  mulObservation_t sources[MUL_MAX_ALRS];
  mulRelation_t relations[MUL_MAX_ALRS-1];
  uint64_t followerEpoch[MUL_MAX_ALRS-1];
