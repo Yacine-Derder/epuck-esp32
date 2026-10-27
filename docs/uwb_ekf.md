@@ -56,7 +56,7 @@ ESP allocates it only on INIT, frees it on OFF/session loss, and refuses allocat
 failure. Replacement initialization can transiently hold two streams. Command
 assembly is bounded to8 poses/8 measurements; stream history is8 odometry intervals
 and4 joint batches. The worker has8192 stack bytes. Reviewed Xtensa static frames:
-command1968, worker step688, stream init1264 plus core init1264; this deepest
+command1968, worker step704, stream init1264 plus core init1264; this deepest
 reviewed application chain is about5.4KiB before library/kernel overhead. This is
 static budgeting, not a runtime high-water or deadline guarantee. Query/measure
 `EKF WORKER` reports actual minimum free stack bytes (ESP-IDF byte units),
