@@ -1,3 +1,4 @@
+#include "app_ekf.h"
 #include "bridge_transport.h"
 #include "bridge_protocol.h"
 #include "mul_telemetry.h"
@@ -31,6 +32,7 @@ static bridge_queue_t uart_out, tcp_out, telemetry_out;
 static uint32_t telemetry_at[BRIDGE_SLOTS],telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_high,last_telemetry_stats;
 static unsigned char telemetry_essential[BRIDGE_SLOTS];
 static char session[17];
+static uint32_t ekf_generation;
 static unsigned ready;
 static uint32_t opened_at, last_progress, led_until;
 static const char *const BRIDGE_TAG="bridge";
@@ -51,6 +53,7 @@ static void disconnect_client(const char *reason, int detail)
 {
   char loss[64];
   if (client<0) return; /* Exactly one diagnostic per active-session teardown. */
+  app_ekf_reset(++ekf_generation);
   uint32_t now=now_ms();
   ESP_LOGW(BRIDGE_TAG,
       "disconnect reason=%s session=%s detail=%d uart_q=%u tcp_q=%u age_ms=%" PRIu32 " stall_ms=%" PRIu32 " stm_diag=%s",
@@ -114,6 +117,7 @@ static void accept_client(uint32_t now)
     close(fd); return;
   }
   client=fd; ready=0; opened_at=last_progress=now;
+  app_ekf_reset(++ekf_generation);
   snprintf(session,sizeof(session),"%08" PRIx32 "%08" PRIx32,esp_random(),esp_random());
   telemetry_drops+=telemetry_out.count;memset(&telemetry_out,0,sizeof(telemetry_out));
   memset(&tcp_out,0,sizeof(tcp_out)); memset(&tcp_parser,0,sizeof(tcp_parser));
@@ -182,6 +186,10 @@ static void tcp_record(const char *line)
     if (!bridge_push(&tcp_out,"ERR STM32 session not ready; retry after SESSION READY")) disconnect_client("tcp_tx_queue_full",0);
     return;
   }
+  if (!strcmp(line,"EKF") || !strncmp(line,"EKF ",4)) {
+    if(!app_ekf_submit(ekf_generation,line,now_ms()))queue_telemetry("EKF ERR worker unavailable/queue full; command not accepted",0);
+    return;
+  }
   snprintf(record,sizeof(record),"CMD %s %s",session,line);
   if (!bridge_push(&uart_out,record)) disconnect_client("uart_tx_queue_full",0);
 }
@@ -224,12 +232,20 @@ static void transport_task(void *argument)
       else if (n<0 && errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR) disconnect_client("tcp_receive_error",errno);
       else if (n>0) {
         for (int i=0;i<n && client>=0;++i) {
-          int parsed=bridge_parse(&tcp_parser,bytes[i],63U);
-          if (parsed<0) disconnect_client(tcp_parser.length>=63U?"tcp_oversized_record":"tcp_malformed_record",(int)tcp_parser.length);
+          size_t limit=tcp_parser.length>=4 && !memcmp(tcp_parser.data,"EKF ",4)?EKF_SERVICE_LINE-2U:63U;
+          int parsed=bridge_parse(&tcp_parser,bytes[i],limit);
+          if (parsed<0) disconnect_client(tcp_parser.length>=limit?"tcp_oversized_record":"tcp_malformed_record",(int)tcp_parser.length);
           else if (parsed>0) tcp_record(tcp_parser.data);
         }
       }
     }
+    /* Optional results cannot consume the reserved control reply queue. */
+#ifdef BRIDGE_HOST_TEST
+    app_ekf_worker_step();
+#endif
+    char ekf_line[EKF_SERVICE_LINE];uint32_t generation;
+    for(unsigned budget=0;budget<2 && app_ekf_receive(&generation,ekf_line);budget++)
+      if(client>=0 && ready && generation==ekf_generation)queue_telemetry(ekf_line,0);
     size_t remaining;
     const char *front=bridge_front(&uart_out,&remaining);
     if (front) {
@@ -246,9 +262,9 @@ static void transport_task(void *argument)
       else {telemetry_drops++;bridge_advance(&telemetry_out,telemetry_out.length[telemetry_out.tail]);}
     }
     if(client>=0&&ready&&(uint32_t)(now-last_telemetry_stats)>=1000U&&tcp_out.count<BRIDGE_SLOTS-4U) {
-      char stats[192];last_telemetry_stats=now;
-      snprintf(stats,sizeof(stats),"UWBSTAT version=1 dropped=%" PRIu32 " corrupt=%" PRIu32 " uart_errors=%" PRIu32 " depth=%u high=%" PRIu32,
-        telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_out.count,telemetry_high);
+      char stats[224];last_telemetry_stats=now;
+      snprintf(stats,sizeof(stats),"UWBSTAT version=1 dropped=%" PRIu32 " corrupt=%" PRIu32 " uart_errors=%" PRIu32 " depth=%u high=%" PRIu32 " ekf_dropped=%" PRIu32,
+        telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_out.count,telemetry_high,app_ekf_dropped());
       queue_telemetry(stats,0);
     }
     /* A partially sent line must finish before switching queue. Otherwise all

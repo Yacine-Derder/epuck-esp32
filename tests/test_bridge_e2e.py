@@ -21,6 +21,7 @@ class BridgeEndToEnd(WireFixture, unittest.IsolatedAsyncioTestCase):
                 '-I'+str(ROOT/'ThirdParty/mul_core'),
                 str(ROOT/'tests/fixtures/bridge_e2e.c'),
                 str(ROOT/'main/bridge_protocol.c'),
+                        str(ROOT/'main/app_ekf.c'), str(ROOT/'main/ekf_service.c'), str(ROOT/'ThirdParty/mul_core/mul_ekf.c'), str(ROOT/'ThirdParty/mul_core/mul_ekf_stream.c'), str(ROOT/'ThirdParty/mul_core/mul_pose.c'), str(ROOT/'ThirdParty/mul_core/mul_schedule.c'), str(ROOT/'ThirdParty/mul_core/mul_common.c'), '-lm',
                 str(ROOT/'ThirdParty/mul_core/mul_telemetry.c'), '-o', str(executable),
             ], check=True)
             payload = work / 'uart.txt'

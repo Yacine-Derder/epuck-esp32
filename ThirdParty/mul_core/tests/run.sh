@@ -61,3 +61,6 @@ cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-p
 cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
  -I. tests/test_pose_telemetry.c mul_telemetry.c -o "$work/pose_telemetry"
 "$work/pose_telemetry"
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
+ -I. tests/test_ekf.c mul_ekf.c mul_ekf_stream.c mul_pose.c mul_schedule.c mul_common.c -lm -o "$work/ekf"
+"$work/ekf"

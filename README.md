@@ -318,3 +318,9 @@ interoperability, UART fault resolution and localization accuracy remain unverif
 Moving passive RLR research: [observability and conditional offline estimator](docs/uwb_mobile.md).
 It requires explicit motion/clock/metrology bounds and does not claim true
 oscillator-rate recovery, a validated point TDoA or a two-anchor2D position.
+
+Optional planar localization: [measured-input EKF and host replay](docs/uwb_ekf.md).
+It defaults OFF and does not use DATA2 commanded/phase counts as measured wheels.
+The [consolidated operator campaign](../lps-node-firmware/docs/mul_experiment_campaign.md)
+provides file-only preparation and offline capture/error analysis; hardware remains
+a separately authorized operator activity.

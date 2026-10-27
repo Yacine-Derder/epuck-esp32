@@ -63,7 +63,8 @@ async def replay(path, experimental=False, planned=False, ar=False, geometry=Fal
                         '-Wno-unused-function', '-Wno-misleading-indentation', '-Wno-return-type',
                         '-DBRIDGE_HOST_TEST', '-I'+str(ROOT/'tests'), '-I'+str(ROOT/'main'),
                         '-I'+str(ROOT/'ThirdParty/mul_core'), str(ROOT/'tests/fixtures/bridge_e2e.c'),
-                        str(ROOT/'main/bridge_protocol.c'), str(ROOT/'ThirdParty/mul_core/mul_telemetry.c'),
+                        str(ROOT/'main/bridge_protocol.c'),
+                        str(ROOT/'main/app_ekf.c'), str(ROOT/'main/ekf_service.c'), str(ROOT/'ThirdParty/mul_core/mul_ekf.c'), str(ROOT/'ThirdParty/mul_core/mul_ekf_stream.c'), str(ROOT/'ThirdParty/mul_core/mul_pose.c'), str(ROOT/'ThirdParty/mul_core/mul_schedule.c'), str(ROOT/'ThirdParty/mul_core/mul_common.c'), '-lm', str(ROOT/'ThirdParty/mul_core/mul_telemetry.c'),
                         '-o', str(executable)], check=True)
         process = subprocess.Popen([str(executable), str(fixture)], stdout=subprocess.PIPE, text=True)
         stop = asyncio.Event()

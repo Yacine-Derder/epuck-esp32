@@ -1,5 +1,10 @@
-idf_component_register(SRCS "main.c" "bridge_transport.c" "bridge_protocol.c" "../ThirdParty/mul_core/mul_telemetry.c"
-                    INCLUDE_DIRS "." "../ThirdParty/mul_core")
+idf_component_register(
+    SRCS "main.c" "bridge_transport.c" "bridge_protocol.c" "ekf_service.c" "app_ekf.c"
+         "../ThirdParty/mul_core/mul_telemetry.c"
+         "../ThirdParty/mul_core/mul_ekf.c" "../ThirdParty/mul_core/mul_ekf_stream.c"
+         "../ThirdParty/mul_core/mul_pose.c" "../ThirdParty/mul_core/mul_schedule.c"
+         "../ThirdParty/mul_core/mul_common.c"
+    INCLUDE_DIRS "." "../ThirdParty/mul_core")
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 execute_process(COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_LIST_DIR}/../ThirdParty/mul_core/verify.py RESULT_VARIABLE verify_result)

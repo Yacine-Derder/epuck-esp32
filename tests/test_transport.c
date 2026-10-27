@@ -175,6 +175,44 @@ static void uwb_telemetry_tests(void) {
  uart_record(line);assert(!telemetry_out.count);
  puts("UWB optional queue saturation/CRC/frame recovery/control isolation/disconnected purge passed");
 }
+static void ekf_transport_tests(void) {
+ while(app_ekf_worker_step()){}
+ uint32_t generation;char output[EKF_SERVICE_LINE];
+ while(app_ekf_receive(&generation,output)){}
+ app_ekf_reset(++ekf_generation);
+ int peer=attach("123456789abcdef0");
+ tcp_record("EKF STATUS");assert(!uart_out.count);
+ assert(app_ekf_worker_step()&&app_ekf_receive(&generation,output));
+ assert(generation==ekf_generation&&strstr(output,"enabled=0")&&strstr(output,"DATA2_measured=0"));
+ assert(app_ekf_submit(ekf_generation,"EKF WORKER",0));assert(app_ekf_worker_step());
+ assert(app_ekf_receive(&generation,output)&&strstr(output,"stack_min_free_bytes=UNKNOWN"));
+ for(unsigned i=0;i<8;i++)assert(app_ekf_submit(ekf_generation,"EKF STATUS",0));
+ assert(!app_ekf_submit(ekf_generation,"EKF STATUS",0));
+ uint32_t dropped=app_ekf_dropped();assert(dropped);
+ // A saturated optional input queue never prevents reserved control forwarding.
+ tcp_record("CONTROL_HB");assert(uart_out.count==1&&strstr(uart_out.data[uart_out.tail],"CONTROL_HB"));
+ while(app_ekf_worker_step()){}
+ assert(app_ekf_submit(ekf_generation,"EKF STATUS",0));assert(app_ekf_worker_step());
+ assert(app_ekf_dropped()>dropped); // saturated output is bounded, too
+ while(app_ekf_receive(&generation,output)){}
+ // Stale queued configuration/ON commands are discarded on connection reset.
+ assert(app_ekf_submit(ekf_generation,"EKF CONFIG EXPERIMENTAL .2 .0001 1e-9 1e-8 0 16 10000 100000 400000 0 1000 3 1",0));
+ disconnect_client("test_ekf_reset",0);close(peer);
+ while(app_ekf_worker_step()){}
+ assert(!app_ekf_receive(&generation,output));
+ assert(app_ekf_submit(ekf_generation,"EKF STATUS",0));assert(app_ekf_worker_step());
+ assert(app_ekf_receive(&generation,output)&&strstr(output,"config=0"));
+ // Long EKF-only input through actual TCP parser; normal control keeps63B limit.
+ peer=attach("223456789abcdef0");mock_connected=wifi_bit=1;mock_uart_write=128;
+ listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
+ char pose[171]="EKF POSE ";memset(pose+9,'0',160);pose[169]='\n';pose[170]=0;
+ assert(send(peer,pose,170,0)==170);owner_once();assert(client>=0&&ready);
+ assert(!uart_out.count); // locally rejected pose never reaches STM32
+ char input[1024];assert(recv(peer,input,sizeof(input),MSG_DONTWAIT)>0);
+ disconnect_client("test_cleanup",0);close(peer);close(listener);listener=-1;
+ while(app_ekf_worker_step()){}
+ puts("EKF default OFF, bounded worker saturation, control isolation, session purge and long local TCP input passed");
+}
 int main(void) {
  /* Generic streaming commands and both telemetry versions pass through the
   * actual transport, preserving envelopes and per-session replies. */
@@ -224,6 +262,6 @@ int main(void) {
  listener=socket(AF_INET,SOCK_STREAM,0); assert(listener>=0); assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
  if(!setjmp(stop_loop)) transport_task(NULL);
  assert(client==-1 && uart_out.count==1); close(peer); close(listener); listener=-1;
- reason_tests();uwb_telemetry_tests();priority_tests();
+ reason_tests();uwb_telemetry_tests();priority_tests();ekf_transport_tests();
  puts("PASS: disconnect diagnostics, nonblocking notification, real transport session filtering, control/output overflow, slow-client loss, Wi-Fi/UART faults and nonblocking partial writes");
 }
