@@ -10,12 +10,12 @@ typedef enum {
  mulMultiScheduleMismatch,mulMultiClockUnavailable,mulMultiNoRate,
  mulMultiStaleRate,mulMultiTiming,mulMultiSequence
 } mulMultiReason_t;
-typedef struct {int32_t rangeDifferenceMm,tdoaDtu;uint8_t status,reason,clockValid,rateState;} mulMultiValue_t;
+typedef struct {int32_t rangeDifferenceMm,tdoaDtu;uint8_t status,clockValid,rateState;uint8_t reason:4,source:2;} mulMultiValue_t;
 typedef struct {
  uint32_t cycle,observedMs,fingerprint,revision;
  uint64_t referenceRx;
  uint16_t slotMs,periodMs;
- uint8_t count,ids[MUL_MAX_ALRS],seenMask,validMask;
+ uint8_t count,ids[MUL_MAX_ALRS],seenMask,validMask,sourceVersion;
  mulMultiValue_t values[MUL_MAX_ALRS-1];
 } mulMultiCycle_t;
 typedef struct {

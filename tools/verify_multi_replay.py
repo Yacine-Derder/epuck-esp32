@@ -18,12 +18,12 @@ from uwb_logging import CompactLog
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def replay(path, experimental=False, planned=False, ar=False):
+async def replay(path, experimental=False, planned=False, ar=False, geometry=False):
     lines = path.read_text().splitlines()
     decoded = [decode(line.strip()) for line in lines]
-    if ar:
+    if ar or geometry:
         expected=decoded
-        assert 0<len(expected)<128 and any(r["type"]=="ar_range" for r in expected)
+        assert 0<len(expected)<128 and any(r["type"]==("tdoa_vector" if geometry else "ar_range") for r in expected)
     elif planned:
         chosen = []
         for i, row in enumerate(decoded):
@@ -70,7 +70,7 @@ async def replay(path, experimental=False, planned=False, ar=False):
         output = io.StringIO()
         try:
             port = int(process.stdout.readline())
-            task = asyncio.create_task(collect(f'127.0.0.1:{port}', output, stop, raw=planned or ar))
+            task = asyncio.create_task(collect(f'127.0.0.1:{port}', output, stop, raw=planned or ar or geometry))
             async def finished():
                 while process.poll() is None:
                     await asyncio.sleep(.02)
@@ -102,7 +102,7 @@ async def replay(path, experimental=False, planned=False, ar=False):
         assert any(r['direction']=='tx' for r in expected if r['type']=='multi_rx')
         print(f'PASS: {len(expected)} actual STM32 AR range/quality/raw records through ESP UART/priority/TCP reconnect/debug+compact JSON; mixed clock stamps, TX/RX markers, acquired time and reset counters preserved')
         return
-    if planned:
+    if planned or geometry:
         raw_rows = [row for row in rows if row.get('type') == 'multi_rx']
         raw_expected = [row for row in expected if row['type'] == 'multi_rx']
         assert len(raw_rows) >= len(raw_expected) > 0
@@ -121,7 +121,15 @@ async def replay(path, experimental=False, planned=False, ar=False):
         for key in ('cycle', 'followers', 'alr_ids', 'schedule_revision', 'schedule_fingerprint', 'seen_mask', 'valid_mask', 'slot_ms', 'cycle_ms'):
             assert actual[key] == original[key], key
     assert any(row['valid_mask'] for row in vectors)
-    if planned:
+    if geometry:
+        sourced=[r for r in vectors if r.get('propagation_metadata_version')==1]
+        assert len(sourced)>=3
+        assert [(r['cycle'],r['followers'][0]['propagation_source']) for r in sourced[:3]]==[(6,'external'),(7,'none'),(8,'external')]
+        assert sourced[0]['followers'][0]['valid'] and abs(sourced[0]['followers'][0]['tdoa_dtu']+2131)<=3
+        assert not sourced[1]['followers'][0]['valid'] and not sourced[2]['followers'][0]['valid']
+        assert all(r['physical_uncertainty']=='UNKNOWN' for r in sourced)
+        print(f'PASS: {len(expected)} records from actual LPS pose-corrected/none/stale frames through STM32 radio and ESP UART/priority/TCP reconnect/compact JSON; raw frames and propagation provenance preserved')
+    elif planned:
         assert {len(row['alr_ids']) for row in vectors} == {2, 4, 8}
         assert {row['cycle_ms'] for row in vectors} == {100, 200, 1000}
         assert all(row['schedule_profile'] == 4 and row['fingerprint_scope'] == 'ranging_plan' for row in vectors)
@@ -154,5 +162,6 @@ if __name__ == '__main__':
     mode.add_argument('--experimental', action='store_true')
     mode.add_argument('--planned', action='store_true')
     mode.add_argument('--ar', action='store_true')
+    mode.add_argument('--geometry', action='store_true')
     args = parser.parse_args()
-    asyncio.run(replay(args.trace.resolve(), args.experimental, args.planned, args.ar))
+    asyncio.run(replay(args.trace.resolve(), args.experimental, args.planned, args.ar, args.geometry))

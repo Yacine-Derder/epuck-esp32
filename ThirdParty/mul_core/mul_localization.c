@@ -34,14 +34,14 @@ void mulLocalizationObserveAtSlot(const mulNetwork_t *network,uint16_t offsetMs,
     pair->reference.generation!=0 && pair->follower.generation!=0 &&
     mulNetworkRole(network,o->reference)==mulAlrReference && mulNetworkRole(network,o->follower)==mulAlrFollower &&
     memcmp(pair->reference.receiverClock,pair->follower.receiverClock,8)==0;
-  o->delayState=r->delayState;
-  if (r->version!=2 && r->available) o->delayState=mulPropagationFresh; // v1 cannot carry numeric estimate/state.
+  o->delayState=r->delayState;o->delaySource=mulRelationSource(r);
+  if (r->version<2 && r->available) o->delayState=mulPropagationFresh; // v1 cannot carry numeric estimate/state.
   uint32_t elapsed=now-pair->follower.acceptedMs;
   bool ageKnown=captureAge<=15 && elapsed<=((uint32_t)offsetMs+200u);
-  if (ageKnown && (r->version==2 || r->available) && o->delayState!=mulPropagationNone && o->delayState!=mulPropagationInvalidated) {
+  if (ageKnown && (r->version>=2 || r->available) && o->delayState!=mulPropagationNone && o->delayState!=mulPropagationInvalidated) {
     o->delayAgeMs=r->delayAgeMs+elapsed+captureAge;
-    if (r->version==2) o->delayDtu=r->delayDtu;
-    uint32_t limit=r->version==2 ? r->maxAgeMs : 1000;
+    if (r->version>=2) o->delayDtu=r->delayDtu;
+    uint32_t limit=r->version>=2 ? r->maxAgeMs : 1000;
     if (o->delayAgeMs>limit) o->delayState=mulPropagationExpired;
     mulPropagationMotionBound(o->delayAgeMs,&o->motionBoundMm,&o->motionBoundDtu);
     if (o->motionBoundMm!=UINT32_MAX) o->unknownComponents &= ~mulQualityMotionUnknown;

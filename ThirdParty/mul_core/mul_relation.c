@@ -5,22 +5,23 @@ static void put(uint8_t *p,uint64_t v,unsigned int n) { for (unsigned int i=0;i<
 static uint64_t get(const uint8_t *p,unsigned int n) {
   uint64_t v=0; for (unsigned int i=0;i<n;i++) v|=(uint64_t)p[i]<<(8*i); return v;
 }
-static uint32_t maximumAge(const mulRelation_t *r) { return r->version==2 ? r->maxAgeMs : 1000; }
+mulDelaySource_t mulRelationSource(const mulRelation_t *r){return r->version==3?(r->externalPose?mulDelayExternal:mulDelayNone):mulDelayTwr;}
+static uint32_t maximumAge(const mulRelation_t *r) { return r->version>=2 ? r->maxAgeMs : 1000; }
 
 void mulRelationEncode(uint8_t frame[MUL_RELATION_FRAME_LENGTH],
   const mulTestPacket_t *p,const mulRelation_t *r)
 {
   memset(frame,0,MUL_RELATION_FRAME_LENGTH);
   mulEncodeTestPacket(frame,p->source,p->sequence,p->txTimestamp);
-  frame[24]=MUL_PACKET_CLOCK_BROADCAST|mulScheduleTag(p->slotMs); frame[34]=r->version==2 ? 2 : 1;
+  frame[24]=MUL_PACKET_CLOCK_BROADCAST|mulScheduleTag(p->slotMs); frame[34]=r->version>=2 ? r->version : 1;
   frame[35]=2 | (r->available ? 1 : 0) | (r->powerCorrectedTwr ? 4 : 0) |
-    (r->version==2 ? r->delayState<<3 : 0); // Overall physical bounds UNKNOWN.
+    (r->version>=2 ? r->delayState<<3 : 0) | (r->version==3 ? mulRelationSource(r)<<6 : 0); // Overall physical bounds UNKNOWN.
   put(frame+36,r->epoch,8); put(frame+44,r->referenceSequence,4);
   put(frame+48,r->twrSequence,4); put(frame+52,r->referenceOrigin,5);
   put(frame+57,r->followerOrigin,5); put(frame+62,(uint32_t)r->skewPpb,4);
   put(frame+66,r->originAgeMs,2); put(frame+68,r->delayAgeMs,2);
-  put(frame+70,r->version==2 ? r->delayDtu : 1000,2);
-  put(frame+72,r->version==2 ? r->maxAgeMs : r->remainingMs,2);
+  put(frame+70,r->version>=2 ? r->delayDtu : 1000,2);
+  put(frame+72,r->version>=2 ? r->maxAgeMs : r->remainingMs,2);
 }
 
 static bool coordinate(const mulRelation_t *r,uint64_t tx,uint64_t *ref,uint32_t *span)
@@ -43,11 +44,11 @@ static bool coordinate(const mulRelation_t *r,uint64_t tx,uint64_t *ref,uint32_t
 bool mulRelationInverse(const mulRelation_t *r,uint64_t tx,uint32_t age,uint64_t *ref)
 {
   uint32_t limit=maximumAge(r),span; uint64_t converted;
-  if (!r->available || r->epoch==0 || r->remainingMs==0 || age > r->remainingMs ||
-      limit<1000 || limit>MUL_PROP_MAX_AGE_MS || r->delayAgeMs>limit ||
+  if ((r->version==3&&(mulRelationSource(r)==mulDelayNone||r->powerCorrectedTwr)) || !r->available || r->epoch==0 || r->remainingMs==0 || age > r->remainingMs ||
+      limit<(r->version==3?1u:1000u) || limit>MUL_PROP_MAX_AGE_MS || r->delayAgeMs>limit ||
       (uint32_t)r->originAgeMs+age > MUL_CLOCK_MAP_HORIZON_MS ||
       (uint32_t)(r->referenceSequence-r->twrSequence)>(r->period10ms ? (limit+r->period10ms*10u-1)/(r->period10ms*10u)+2 : limit<=2000 ? 3u : (limit+999)/1000+2) ||
-      (r->version==2 && (r->delayState!=mulPropagationFresh && r->delayState!=mulPropagationReused)) ||
+      (r->version>=2 && (r->delayState!=mulPropagationFresh && r->delayState!=mulPropagationReused)) ||
       !coordinate(r,tx,&converted,&span) || span+age>limit ||
       r->remainingMs>limit-span || r->remainingMs>limit-r->delayAgeMs) return false;
   *ref=converted; return true;
@@ -61,12 +62,14 @@ bool mulBroadcastDecodePeriodNetwork(const mulNetwork_t *network,const uint8_t *
     if (!mulDecodeTestPacket(frame,length,&packet)) return false;
   } else {
     if (length!=MUL_RELATION_FRAME_LENGTH || (frame[24]&0x3f)!=MUL_PACKET_CLOCK_BROADCAST ||
-        (frame[34]!=1 && frame[34]!=2) || (frame[35]&2)==0 ||
-        (frame[35] & (frame[34]==1 ? ~7 : ~63))!=0) return false;
+        (frame[34]!=1 && frame[34]!=2 && frame[34]!=3) || (frame[35]&2)==0 ||
+        (frame[35] & (frame[34]==1 ? ~7 : frame[34]==2 ? ~63 : 0))!=0) return false;
     uint8_t base[MUL_TEST_FRAME_LENGTH]; memcpy(base,frame,sizeof(base)); base[24]=(frame[24]&0xc0)|MUL_PACKET_TEST_BROADCAST;
     if (!mulDecodeTestPacket(base,sizeof(base),&packet) || mulNetworkRole(network,packet.source)!=mulAlrFollower) return false;
     relation.period10ms=periodMs/10;
     relation.version=frame[34];
+    relation.externalPose=relation.version==3&&(frame[35]>>6)==mulDelayExternal;
+    if(relation.version==3&&((frame[35]>>6)<mulDelayExternal||(frame[35]>>6)>mulDelayNone))return false;
     relation.epoch=get(frame+36,8); relation.referenceSequence=get(frame+44,4);
     relation.twrSequence=get(frame+48,4); relation.referenceOrigin=get(frame+52,5);
     relation.followerOrigin=get(frame+57,5);
@@ -74,18 +77,19 @@ bool mulBroadcastDecodePeriodNetwork(const mulNetwork_t *network,const uint8_t *
     relation.skewPpb=bits<=INT32_MAX ? (int32_t)bits : (int32_t)((int64_t)bits-INT64_C(4294967296));
     relation.originAgeMs=get(frame+66,2); relation.delayAgeMs=get(frame+68,2);
     relation.available=frame[35]&1; relation.powerCorrectedTwr=(frame[35]&4)!=0;
+    if(relation.version==3&&(relation.powerCorrectedTwr||(mulRelationSource(&relation)==mulDelayNone&&(relation.available||((frame[35]>>3)&7)))))return false;
     if (relation.version==1) {
       if (get(frame+70,2)!=1000) return false;
       relation.remainingMs=get(frame+72,2);
       relation.delayState=relation.available ? mulPropagationFresh : mulPropagationNone;
     } else {
       relation.delayDtu=get(frame+70,2); relation.maxAgeMs=get(frame+72,2);
-      relation.delayState=frame[35]>>3;
-      if (relation.maxAgeMs<1000 || relation.maxAgeMs>MUL_PROP_MAX_AGE_MS ||
+      relation.delayState=(frame[35]>>3)&7;
+      if (relation.maxAgeMs<(relation.version==3?1u:1000u) || relation.maxAgeMs>MUL_PROP_MAX_AGE_MS ||
           relation.delayDtu>MUL_CLOCK_DELAY_MAX_DTU || relation.delayState>mulPropagationInvalidated) return false;
       bool valid=relation.delayState==mulPropagationFresh || relation.delayState==mulPropagationReused;
       if (valid && (relation.delayAgeMs>relation.maxAgeMs ||
-          relation.delayState!=((uint32_t)(relation.referenceSequence-relation.twrSequence)<=1 ? mulPropagationFresh : mulPropagationReused))) return false;
+          relation.delayState!=(relation.version==3 ? (relation.delayAgeMs<=(periodMs?periodMs:1000)?mulPropagationFresh:mulPropagationReused) : ((uint32_t)(relation.referenceSequence-relation.twrSequence)<=1 ? mulPropagationFresh : mulPropagationReused)))) return false;
       if (relation.delayState==mulPropagationExpired && relation.delayAgeMs<=relation.maxAgeMs) return false;
       if ((relation.delayState==mulPropagationNone || relation.delayState==mulPropagationInvalidated) &&
           (relation.delayDtu || relation.delayAgeMs || relation.twrSequence || relation.powerCorrectedTwr)) return false;
@@ -110,38 +114,42 @@ static void unavailableModel(mulRelation_t *r)
 {
   r->available=false; r->referenceOrigin=r->followerOrigin=0;
   r->skewPpb=0; r->originAgeMs=r->remainingMs=0;
-  if (r->version!=2) {
+  if (r->version<2) {
     r->twrSequence=0; r->delayAgeMs=r->delayDtu=0;
     r->powerCorrectedTwr=false; r->delayState=mulPropagationNone;
   }
 }
 
-mulRelation_t mulRelationPublishNetwork(const mulNetwork_t *network,const mulClock_t *clock,const mulClockDelay_t *delay,
-  uint64_t tx,uint64_t hardwareNow,uint32_t nowMs,bool powerCorrectedTwr)
+mulRelation_t mulRelationPublishSourceNetwork(const mulNetwork_t *network,const mulClock_t *clock,const mulClockDelay_t *delay,
+  uint64_t tx,uint64_t hardwareNow,uint32_t nowMs,bool powerCorrectedTwr,mulDelaySource_t source)
 {
   mulRelation_t result={.period10ms=clock->periodMs&&clock->periodMs!=1000?clock->periodMs/10:0,.epoch=clock->epoch,.referenceSequence=clock->sequence,
-    .version=MUL_PROP_MAX_AGE_MS==1000 ? 1 : 2,.maxAgeMs=MUL_PROP_MAX_AGE_MS};
+    .version=source==mulDelayTwr?(MUL_PROP_MAX_AGE_MS==1000?1:2):3,.externalPose=source==mulDelayExternal,.maxAgeMs=MUL_PROP_MAX_AGE_MS};
+  if(source==mulDelayNone||source>mulDelayNone)return result;
+  if(source==mulDelayExternal&&delay&&delay->maxAgeMs>0&&delay->maxAgeMs<=MUL_PROP_MAX_AGE_MS)result.maxAgeMs=delay->maxAgeMs;
+  uint32_t limit=result.maxAgeMs;
   int64_t lead=mulTimestampDifference(tx,hardwareNow);
   if (lead < 0 || lead > INT64_C(600)*63897600) return result;
   uint32_t atTx=nowMs+(uint32_t)((lead+63897599)/63897600)+1;
-  if (delay && delay->maxAgeMs==MUL_PROP_MAX_AGE_MS && delay->epoch==clock->epoch && delay->valid &&
+  if (delay && delay->source==source && delay->maxAgeMs==limit && delay->epoch==clock->epoch && delay->valid &&
       delay->oneWayDtu>=0 && delay->oneWayDtu<=MUL_CLOCK_DELAY_MAX_DTU) {
     uint32_t age=atTx-delay->measuredMs;
     result.delayAgeMs=age>UINT16_MAX ? UINT16_MAX : age;
     result.delayDtu=delay->oneWayDtu; result.twrSequence=delay->referenceSequence;
-    result.powerCorrectedTwr=powerCorrectedTwr;
-    result.delayState=age>MUL_PROP_MAX_AGE_MS ? mulPropagationExpired :
+    result.powerCorrectedTwr=source==mulDelayTwr&&powerCorrectedTwr;
+    result.delayState=age>limit ? mulPropagationExpired : source==mulDelayExternal ?
+      (age<=(clock->periodMs?clock->periodMs:1000)?mulPropagationFresh:mulPropagationReused) :
       (uint32_t)(clock->sequence-delay->referenceSequence)<=1 ? mulPropagationFresh : mulPropagationReused;
   }
   mulClockCorrectedMapping_t origin,inverse;
-  if (!delay || delay->maxAgeMs!=MUL_PROP_MAX_AGE_MS ||
+  if (!delay || delay->source!=source || delay->maxAgeMs!=limit ||
       !mulClockMapRefToFollowerSimultaneousNetwork(network,clock,clock->referenceTx,delay,atTx,&origin) ||
       !mulClockMapFollowerSimultaneousToRefNetwork(network,clock,tx,delay,atTx,&inverse)) {
     unavailableModel(&result);
     return result;
   }
   uint32_t span=origin.applicationAgeMs > inverse.applicationAgeMs ? origin.applicationAgeMs : inverse.applicationAgeMs;
-  uint32_t remaining=MUL_PROP_MAX_AGE_MS-span;
+  uint32_t remaining=limit-span;
   uint32_t originRemaining=2000-origin.affine.ageMs;
   if (remaining>originRemaining) remaining=originRemaining;
   if (remaining<=1) { unavailableModel(&result); return result; }
@@ -153,6 +161,11 @@ mulRelation_t mulRelationPublishNetwork(const mulNetwork_t *network,const mulClo
     unavailableModel(&result);
   }
   return result;
+}
+
+mulRelation_t mulRelationPublishNetwork(const mulNetwork_t *network,const mulClock_t *clock,const mulClockDelay_t *delay,
+ uint64_t tx,uint64_t now,uint32_t ms,bool power) {
+ return mulRelationPublishSourceNetwork(network,clock,delay,tx,now,ms,power,delay?delay->source:mulDelayTwr);
 }
 
 /* Legacy API wrappers retain the default network. */

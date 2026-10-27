@@ -115,7 +115,8 @@ class CompactLog:
                             slot_ms=row['slot_ms'], cycle_ms=row['cycle_ms'], rate_policy=row['rate_policy'],
                             schedule_profile=row['schedule_profile'], experimental_timing=row['experimental_timing'],
                             fingerprint_scope=row.get('fingerprint_scope', 'broadcast_schedule'),
-                            seen_mask=row['seen_mask'], valid_mask=row['valid_mask'], followers=row['followers']))
+                            seen_mask=row['seen_mask'], valid_mask=row['valid_mask'], followers=row['followers'],
+                            **{k:row[k] for k in ('propagation_metadata_version','physical_uncertainty') if k in row}))
         elif event == 'tdoa':
             roster = (row['reference_node'], row['follower_node'], row['rate_policy'], row['slot_ms'])
             if self.rosters.get(sid) != roster:
@@ -127,6 +128,7 @@ class CompactLog:
             # rate=stationary. Invalid rows retain the actual code/clock/rate.
             if not row['valid']:
                 value.update(status=row['status'], clock=row['clock_valid'], rate=row['rate_state'])
+            value.update({k:row[k] for k in ('propagation_metadata_version','propagation_source','physical_uncertainty') if k in row})
             self.write(value)
         elif event in ('ar_range','ar_quality'):
             keys=('cycle','schedule_fingerprint','schedule_revision','schedule_profile','fingerprint_scope','source','physical_uncertainty')

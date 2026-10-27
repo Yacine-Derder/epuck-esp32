@@ -9,12 +9,13 @@ SENTINEL = -2147483648
 
 def decode_multi(data, out):
     policy = data[148]
+    source_version = data[149]
     planned = data[3] in (11, 12)
     experimental = data[11] == 3 or planned
     if (planned and data[11] != 4) or (not planned and data[11] not in (0, 3)):
         raise ValueError("multi profile marker")
     if (data[2] != 3 or data[6] != 2 or data[8] != 2 or data[7] not in (4, 5)
-            or policy != (data[7] == 5) or data[149]):
+            or policy != (data[7] == 5) or source_version>1 or (data[3] in (9,12) and source_version)):
         raise ValueError('multi envelope')
     for key in ('raw_mm', 'calibrated_mm', 'raw_valid', 'calibration', 'calibrated_valid'):
         out.pop(key)
@@ -59,7 +60,9 @@ def decode_multi(data, out):
         dd, dt, packed, reason = struct.unpack_from('<iiBB', data, offset)
         status, clock, rate = packed & 7, (packed >> 3) & 1, (packed >> 4) & 3
         available = status == 4
-        if (packed & 0xc0 or status > 4 or rate > 2 or reason > 9 or (rate and not policy)
+        source = packed >> 6
+        if ((not source_version and source) or (source_version and bool(source)!=bool(seen & (1<<index)))
+                or (source_version and source==3 and (available or clock)) or status > 4 or rate > 2 or reason > 9 or (rate and not policy)
                 or available != bool(valid & (1 << index))
                 or (available and (not clock or rate != 1 or reason or not seen & 1))
                 or (available and SENTINEL in (dd, dt))
@@ -69,6 +72,10 @@ def decode_multi(data, out):
                            valid=available, range_diff_mm=dd if available else None,
                            tdoa_dtu=dt if available else None, status=status, status_name=STATUSES[status],
                            reason=reason, reason_name=REASONS[reason], clock_valid=bool(clock), rate_state=rate))
+        if source_version:
+            values[-1].update(propagation_source=("unknown","twr","external","none")[source],propagation_source_code=source)
+    if source_version:
+        out.update(propagation_metadata_version=source_version,physical_uncertainty="UNKNOWN")
     out.update(cycle=cycle, reference_node=ids[0], alr_ids=ids, alr_count=count,
                seen_mask=seen, valid_mask=valid, followers=values, slot_ms=slot, cycle_ms=period,
                schedule_revision=revision, schedule_fingerprint=f'{fingerprint:08X}',

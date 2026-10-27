@@ -457,3 +457,19 @@ UWB3 envelopes stay unchanged: the full-plan fingerprint covers policy/prioritie
 and prevents mismatched reconstruction. Host scheduler previews report the actual
 policy/version; telemetry age continues to describe acquired data, not a planned
 deadline. Physical freshness or noise bounds are not inferred from this setting.
+
+
+Core f51877d adds external pose propagation provenance. Vector payload byte149=1
+marks source-aware packed entries:0missing,1TWR,2external,3none. TDoA payload
+115=1/116=1or2 identifies external/none. Legacy zero subversions remain unchanged;
+older strict parsers reject new markers. Debug and compact output preserve
+`propagation_metadata_version`, `propagation_source` (per follower for vectors),
+and UNKNOWN physical uncertainty. A none source cannot produce a corrected
+clock/available metric observation. Supplied covariance is never a physical bound.
+
+`verify_multi_replay.py --geometry TRACE` tests actual LPS-generated external/none/
+stale radio frames after the STM32 fixture reconstructs them.35 records retain
+raw frames and source provenance through ESP UART/priority/TCP reconnect/debug and
+compact JSON. `--planned` also covers external relations acrossN2/4/8. These are
+software simulations; no physical link or Pi/ROS/MCS bridge is involved. See the
+LPS pose codec/host generator and command docs for source time/age/frame contracts.

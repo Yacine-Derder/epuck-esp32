@@ -202,7 +202,7 @@ mulClockDelayStatus_t mulClockDelayStatusNetwork(const mulNetwork_t *network,con
   if (delay == NULL) {
     return mulClockDelayMissing;
   }
-  if (!delay->valid ||
+  if (!delay->valid || delay->source>mulDelayExternal ||
       mulNetworkRole(network,delay->reference) != mulAlrReference ||
       mulNetworkRole(network,delay->follower) != mulAlrFollower ||
       delay->units != mulClockDelayReferenceDtu || delay->oneWayDtu < 0 ||

@@ -54,3 +54,10 @@ cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-p
 cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
  -I. tests/test_ar_telemetry.c mul_telemetry.c -o "$work/ar_telemetry"
 "$work/ar_telemetry"
+
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
+ -I. tests/test_pose.c mul_pose.c mul_clock.c mul_relation.c mul_schedule.c mul_common.c -lm -o "$work/pose"
+"$work/pose"
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
+ -I. tests/test_pose_telemetry.c mul_telemetry.c -o "$work/pose_telemetry"
+"$work/pose_telemetry"

@@ -26,6 +26,7 @@ typedef struct {
   uint32_t delayAgeMs,motionBoundMm,motionBoundDtu;
   uint16_t delayDtu,slotMs,clockAgeMs;
   uint8_t delayState,status,rateState,powerFlags,unknownComponents;
+  uint8_t delaySource:2;
   uint8_t associationValid:1;
   uint8_t clockValid:1;
 } mulLocalization_t;

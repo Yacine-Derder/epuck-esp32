@@ -16,7 +16,7 @@ typedef struct {
  uint32_t referenceSequence,followerSequence,delayAgeMs;
  int32_t tdoaDtu,rangeDifferenceMm,ratePpb;
  uint16_t delayDtu,clockAgeMs;
- uint8_t reference,follower,status,clockValid,rateState,delayState,powerFlags,unknownComponents;
+ uint8_t reference,follower,status,clockValid,rateState,delayState,powerFlags,unknownComponents,delaySource;
 } mulTdoaTelemetry_t;
 typedef struct {
  uint64_t referenceTx,rawRx;

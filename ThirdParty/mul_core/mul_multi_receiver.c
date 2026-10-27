@@ -48,8 +48,10 @@ static void finish(mulMultiReceiver_t *s,mulMultiCycle_t *out) {
  out->revision=s->schedule.revision;out->slotMs=s->schedule.slotMs;out->periodMs=s->schedule.periodMs;
  out->count=s->schedule.count;memcpy(out->ids,s->schedule.ids,MUL_MAX_ALRS);out->seenMask=s->seenMask;
  if(s->seenMask&1u)out->referenceRx=s->sources[0].source.rxTimestamp;
+ for(unsigned i=1;i<s->schedule.count;i++)if((s->seenMask&(1u<<i))&&s->relations[i-1].version==3)out->sourceVersion=1;
  for(unsigned i=1;i<s->schedule.count;i++) {
   out->values[i-1]=s->values[i-1];
+  if(out->sourceVersion&&(s->seenMask&(1u<<i)))out->values[i-1].source=1+mulRelationSource(&s->relations[i-1]);
   if(out->values[i-1].status==mulDownlinkAvailable)out->validMask|=(uint8_t)(1u<<i);
  }
  s->active=false;s->cycles++;

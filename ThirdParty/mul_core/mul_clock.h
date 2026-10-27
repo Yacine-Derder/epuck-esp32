@@ -110,7 +110,9 @@ typedef enum {
   mulClockDelayReferenceDtu,
 } mulClockDelayUnits_t;
 
+typedef enum {mulDelayTwr=0,mulDelayExternal=1,mulDelayNone=2} mulDelaySource_t;
 typedef struct {
+  mulDelaySource_t source; // Covariance is not a physical bound; default0 retains TWR.
   uint8_t reference[MUL_ADDRESS_LENGTH];
   uint8_t follower[MUL_ADDRESS_LENGTH]; // Ordered identities define direction.
   uint64_t epoch; // Copy current clock.epoch when measurement is acquired.

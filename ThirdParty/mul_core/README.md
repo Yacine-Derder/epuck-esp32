@@ -386,3 +386,62 @@ nonzero per-pair target r milliHz, the nominal period is1000000/r ms, with cycle
 quantization; a conservative planned gap allowance is that period plus two cycles.
 Actual committed age/validity remains explicit and may be unbounded after loss.
 No adaptive rescheduling or measurement-noise claim follows from this policy.
+
+
+### Portable external pose and propagation input
+
+`mul_pose` is source-agnostic and has no transport/ROS/MCS/noise-generation code.
+Pose version1 is80 little-endian bytes:0version,1node,2flags,3zero;4clock32,8epoch32,
+12frame32,16sequence32,20source timestamp64 microseconds;28position3×signed32mm;
+40covariance6×signed32mm² orderedxx,xy,xz,yy,yz,zz;64ageUpperMs16,66TTL16,
+68timeUncertaintyMs16;70..75zero;76CRC32 of0..75. Flags1position-valid,2covariance
+provided,4cross-robot position-noise independence explicitly declared. Unknown
+age/time uncertainty=65535. Clock/frame IDs must be nonzero. Positions are bounded
+to±1000000mm; covariance components to±1e9mm², with nonnegative diagonals and PSD
+checks (normalized determinant relative tolerance1e-12). TTL1..6000ms.
+
+Source timestamp/clock/epoch and common frame are distinct from local reception
+uptime. The supplied age upper bound must cover observation age at local
+acceptance INCLUDING transit/alignment uncertainty; UNKNOWN cannot correct a
+clock. Nominal source timestamp skew is checked separately (policy0..1000ms).
+Unknown timestamp uncertainty never becomes a physical simultaneity guarantee.
+Stream begin explicitly clears old observations and binds clock/epoch/frame.
+Duplicate/old/half-period-ambiguous sequence numbers and repeated valid timestamps
+are rejected without refreshing age. Invalid observations explicitly withdraw a
+pose. Max8 identities, no eviction that could silently replace another robot.
+
+Geometry uses immutable snapshots, Euclidean3D distance and nominal reference-DTU
+conversion. First-order variance projects both supplied full3D covariance matrices
+only when both observations declare independent cross-robot noise; otherwise it
+is UNKNOWN. Co-located positions also leave linearized variance unknown. This
+statistical variance is never substituted for a hard bound. Delay objects retain
+UNKNOWN measurement/motion physical bounds; clock scale remains uncalibrated.
+`mulPoseDelay` validates ordered identities and binds to the CURRENT clock epoch,
+while preserving the geometry acquisition age. Source timestamps never determine
+a hardware delayed-TX target. Existing mapping and regression APIs accept this
+delay object; no fallback to pristine truth or TWR is implicit.
+
+Relation subversion3 retains74-byte base/80-byte multi body lengths, with source
+external1/none2 in flag bits6..7; TWR retains exact v1/2 bytes. External/none cannot
+claim power-corrected TWR. External TTL can be1..MUL_PROP_MAX_AGE_MS; propagation
+state fresh/reused is based on age versus broadcast period, not a fabricated TWR
+completion sequence. Field48 is the reference-sequence binding for external
+geometry, not a TWR transaction. None/missing external input stays unavailable.
+Old decoders reject3. Relation remains48 bytes; no inactive-state overlay added.
+
+Source-aware vector payload subversion1 uses byte149=1 and packed follower bits
+6..7:0missing,1TWR,2external,3none. Seen entries require nonzero provenance; unseen
+entries require0. Subversion0 retains all old bytes/zero reserved bits. TDoA7
+subversion1 uses115=1,116source external1/none2,117zero; old TWR zero bytes remain
+unchanged. These explicit markers make older strict decoders reject new semantics
+instead of labeling geometry as TWR. Raw radio copies preserve source/version too.
+The UWB3 envelope stays152 bytes; all physical uncertainty remains UNKNOWN.
+
+
+Pose banks provide periodic expiry latching: expired entries retain identity,
+sequence and source timestamp but replace local TTL with a zero tombstone. Zero
+is forbidden on wire. They cannot revive at a full local uptime wrap or after
+pair retargeting; only a newer valid source observation can replace them. Call
+`mulPoseStreamExpire` regularly, before a full uint32 local-time wrap. Runtime
+cache queries also latch expired status. Pure snapshot geometry cannot infer
+multiple wraps from a32-bit timestamp alone; periodic bank service is required.

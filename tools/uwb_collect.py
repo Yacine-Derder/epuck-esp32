@@ -63,8 +63,10 @@ def decode(line):
             or (state==1)!=(rate!=sentinel) or (state and not policy)
             or (available and (not clock or state!=1))
             or (available and sentinel in (dt,dd)) or (not available and (dt!=sentinel or dd!=sentinel))
-            or data[71] or any(data[96:104]) or any(data[115:118]) or any(data[130:150])):
+            or data[71] or any(data[96:104]) or data[115]>1 or data[116]>2 or data[117] or data[115]!=bool(data[116])
+            or (data[116] and data[114]&4) or (data[116]==2 and (available or clock or data[112])) or any(data[130:150])):
             raise ValueError('tdoa envelope')
+        if data[115]:out.update(propagation_metadata_version=1,propagation_source=('twr','external','none')[data[116]],physical_uncertainty='UNKNOWN')
         for key in ('raw_mm','calibrated_mm','raw_valid','calibration','calibrated_valid'):out.pop(key)
         out.update(reference_sequence=ref_seq,follower_sequence=fol_seq,reference_node=ref,follower_node=fol,
                    status=status,status_name=('no_relation','no_rate','stale_rate','inconsistent','available')[status],
