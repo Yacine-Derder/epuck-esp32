@@ -7,16 +7,18 @@ def increments(rows, fields):
     first = {k: rows[0].get(k, 0) for k in fields}
     previous, total, resets = first.copy(), dict.fromkeys(fields, 0), 0
     for row in rows[1:]:
+        reset = False
         for key in fields:
             value = row.get(key, previous[key])
             delta = (value-previous[key]) & 0xffffffff
             if delta >= 0x80000000:
                 # An observed restart/reset occurred after the previous sample.
                 total[key] += value
-                resets += 1
+                reset = True
             else:
                 total[key] += delta
             previous[key] = value
+        resets += int(reset)
     return dict(baseline=first, last=previous, observed_increments=total, resets=resets)
 
 

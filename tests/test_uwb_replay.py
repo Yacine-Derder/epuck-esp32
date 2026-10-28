@@ -137,6 +137,7 @@ class ReplayAccounting(unittest.TestCase):
         from uwb_replay_audit import increments,audit
         self.assertEqual(increments([dict(n=0xfffffffe),dict(n=1)],['n'])['observed_increments']['n'],3)
         self.assertEqual(increments([dict(n=100),dict(n=2)],['n'])['observed_increments']['n'],2)
+        self.assertEqual(increments([dict(a=100,b=200),dict(a=1,b=2)],['a','b'])['resets'],1)
         rows=[(dict(s='one',cycle=c,diagnostic_id=i,diagnostic_dropped=d,cycle_start_ms=c*1000,cycle_ms=1000),b'') for c,i,d in ((1,1,10),(2,3,11))]
         _, result=audit(rows,{},[],[])
         self.assertEqual(result['diagnostic_dropped'],1)

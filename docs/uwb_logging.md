@@ -700,8 +700,8 @@ checks the complete boundary-cut file fails strict completeness and its explicit
 selected synthetic interior has140/140 exact pairs, zero current diagnostic ID gaps/
 drop increments, and complete replay despite254 optional/auxiliary sequence losses.
 The producer identifies252 raw type12 losses plus one summary and one quality row.
-At the recorded86ms status-report phase it instead identifies129 raw and127 quality
-losses, with identical results when replay is OFF. The fixture uses the exact full
+At the recorded86ms status-report phase it instead identifies128 raw,127 quality and one summary
+loss, with identical results when replay is OFF. The fixture uses the exact full
 local plan fields (revision23, fingerprint826414CC), not merely hash equality.
 The disabled replay fixture has identical shedding: no FIFO enlargement, UART-rate
 change or speculative prioritization is applied. UART average bandwidth is below
