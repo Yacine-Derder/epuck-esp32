@@ -88,7 +88,7 @@ static bool valid(const mulTelemetry_t *r){
  if(r->type==mulTlmClock) {
   const mulClockTelemetry_t *c=&r->clock;
   if(r->radio!=2||r->role!=2||(r->mode!=4&&r->mode!=5)||(c->version!=1&&r->transaction&&(r->transaction<10||r->transaction>2000))||c->reference==255||c->reference==r->node||
-   c->version>2||c->referenceTx>UINT64_C(0xffffffffff)||c->rawRx>UINT64_C(0xffffffffff)||c->method>1||c->window<8||c->window>32||
+   c->version>3||c->referenceTx>UINT64_C(0xffffffffff)||c->rawRx>UINT64_C(0xffffffffff)||(c->version==3?(c->method!=0&&c->method!=2)||c->window!=5:c->method>1||c->window<8||c->window>32)||
    c->count>c->window||c->inliers>c->count||c->status>3||c->ready>1||c->applied>1||c->fallback>3||c->compensated>1||
    c->appliedPpb<-200000||c->appliedPpb>200000||c->fittedPpb<-200000||c->fittedPpb>200000||
    (c->applied&&(!c->method||!c->ready||c->status!=2||c->fallback)))return false;
@@ -166,7 +166,7 @@ bool mulTelemetryEncode(char *line,size_t capacity,const mulTelemetry_t *r){
   put(b+62,c->rmsDtu,4);put(b+66,c->rejected,4);put(b+70,c->fitSigmaPpb,4);put(b+74,c->ageMs,4);
   b[78]=c->reference;b[79]=c->method;b[80]=c->window;b[81]=c->count;b[82]=c->inliers;
   b[83]=c->status;b[84]=c->ready;b[85]=c->applied;b[86]=c->fallback;b[87]=c->compensated;
-  if(c->version!=1){b[88]=2;put(b+90,r->captureAgeMs,2);}
+  if(c->version!=1){b[88]=c->version==3?3:2;put(b+90,r->captureAgeMs,2);}
  }
  put(b+150,mulTelemetryCrc(b,150),2);memcpy(line,b[2]==3?"UWB3 ":"UWB2 ",5);
  static const char hex[]="0123456789ABCDEF";for(unsigned i=0;i<152;i++){line[5+2*i]=hex[b[i]>>4];line[6+2*i]=hex[b[i]&15];}line[309]=0;return true;
@@ -205,9 +205,9 @@ bool mulTelemetryDecode(const char *line,mulTelemetry_t *r){
  }
  if(d.type==mulTlmClock) {
   if(b[2]!=3)return false;
-  if((b[88]!=0&&b[88]!=2)||b[89])return false;
+  if((b[88]!=0&&b[88]!=2&&b[88]!=3)||b[89])return false;
   for(unsigned i=b[88]?92:88;i<150;i++)if(b[i])return false;
-  mulClockTelemetry_t *c=&d.clock;c->version=b[88]?2:1;
+  mulClockTelemetry_t *c=&d.clock;c->version=b[88]?b[88]:1;
   d.captureAgeMs=b[88]?(uint16_t)get(b+90,2):UINT16_MAX;
   c->referenceTx=get(b+40,5);c->rawRx=get(b+45,5);c->referenceSequence=(uint32_t)get(b+50,4);
   c->appliedPpb=signed32((uint32_t)get(b+54,4));c->fittedPpb=signed32((uint32_t)get(b+58,4));

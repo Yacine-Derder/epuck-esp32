@@ -17,12 +17,12 @@ from validate_tdoa_replay import validate
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def verify(stm32, paced=False):
+async def verify(stm32, paced=False, kalman=False):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         fixture, uart, bridge = work/'stm', work/'trace.uart', work/'bridge'
         subprocess.run(['python3', str(stm32/'tools/build_replay_host.py'), '--transport' if paced else '--fixture', '--sanitize', '--output', str(fixture)], check=True)
-        subprocess.run([str(fixture)], env=dict(os.environ, MUL_REPLAY_TRACE=str(uart)), check=True)
+        subprocess.run([str(fixture)], env=dict(os.environ, MUL_REPLAY_TRACE=str(uart), **({"MUL_REPLAY_KALMAN":"1"} if kalman else {})), check=True)
         lines = uart.read_text().splitlines()
         chosen = lines
         assert len(chosen) <= 4095
@@ -80,5 +80,6 @@ if __name__ == '__main__':
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument('--stm32', type=Path, default=ROOT.parent/'epuck-stm32')
     ap.add_argument('--paced', action='store_true', help='200s virtual capture, offline startup, AA bursts, 27ms UART and TCP reconnect')
+    ap.add_argument('--kalman', action='store_true', help='Select persisted Kalman in STM fixture before simulated RF ON')
     args=ap.parse_args()
-    asyncio.run(verify(args.stm32,args.paced))
+    asyncio.run(verify(args.stm32,args.paced,args.kalman))

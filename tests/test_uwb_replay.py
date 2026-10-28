@@ -57,6 +57,19 @@ class Replay(unittest.TestCase):
         self.assertTrue(any(r['expected']['tdoa_dtu']<0 and r['expected']['status']==4 for r in rows))
         self.assertTrue(any(r['relation']['delay_dtu']>0 for r in rows))
 
+    def test_kalman_schema_and_exact_replay(self):
+        exe=self.path/'kalman';trace=self.path/'kalman.uart'
+        subprocess.run(['python3',str(STM/'tools/build_replay_host.py'),'--fixture','--sanitize','--output',str(exe)],check=True)
+        subprocess.run([str(exe)],env=dict(os.environ,MUL_REPLAY_KALMAN='1',MUL_REPLAY_TRACE=str(trace)),check=True,stdout=subprocess.DEVNULL)
+        text=self.project(trace.read_text().splitlines());rows=list(map(json.loads,text.splitlines()))
+        clocks=[r for r in rows if r.get('type')=='clock']
+        self.assertTrue(clocks and all(r['clock_record_version']==3 and r['clock_estimator']=='kalman' for r in clocks))
+        self.assertTrue(any(r['applied_estimator']=='kalman' for r in clocks))
+        recording=self.path/'kalman.jsonl';recording.write_text(text)
+        result=validate(recording,STM,sanitize=True)
+        self.assertTrue(result['passed'] and result['replay_complete'],result['mismatches'])
+        self.assertEqual(result['exact_dtu_matches'],45)
+
     def test_disabled_instrumentation_preserves_outputs(self):
         exe=self.path/'disabled';trace=self.path/'disabled.uart'
         subprocess.run(['python3',str(STM/'tools/build_replay_host.py'),'--fixture','--disabled','--sanitize','--output',str(exe)],check=True)

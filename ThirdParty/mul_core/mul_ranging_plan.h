@@ -7,6 +7,7 @@
 #define MUL_PLAN_BYTES 64u
 #define MUL_PLAN_VERSION 2u
 #define MUL_PLAN_FRESHNESS_VERSION 3u
+#define MUL_PLAN_DELAY_VERSION 4u
 #define MUL_PLAN_FAIR 0u
 #define MUL_PLAN_FRESHNESS 1u
 #define MUL_PLAN_SERVICE_MARGIN_US 1000u // One1ms service quantum before TX setup.
@@ -16,6 +17,7 @@
  * radio adapters must explicitly opt in before using these reservations. */
 typedef struct {
  mulSchedule_t broadcast;
+ uint32_t aaStartDelayUs; // Shift AA windows only; zero preserves codec2/3 and timing.
  uint16_t aaMilliHz,arMilliHz;
  uint8_t rlrCount,rlrs[MUL_MAX_RLRS],enabled,replyMs,maxUtilization;
  uint8_t policy,aaPriority,arPriority; // EDF tie priorities; never inflate promised rates.

@@ -111,4 +111,42 @@ static void freshness(void) {
  }
  puts("Freshness EDF: exact per-pair rates, bounded planned age, priority ties, conservative coincident deadlines, disabled classes, codec2 preservation/codec3 hash and cycle32 wrap passed");
 }
-int main(void){matrix();fairness();freshness();return 0;}
+static void startDelay(void) {
+ mulRangingPlan_t p=plan(2,1,20,3,1000);
+ p.broadcast.slotMs=10;p.broadcast.rxBudgetUs=5000;
+ p.aaMilliHz=1000;p.arMilliHz=50;
+ assert(mulRangingPlanFingerprint(&p)==0x826414cc);
+ uint8_t old[64],bytes[64];assert(mulRangingPlanEncode(old,&p)&&old[0]==2);
+ mulRangingOperation_t baseline,shifted,remote;
+ assert(mulRangingPlanOperation(&p,1,0,&baseline));
+ assert(baseline.kind==MUL_PLAN_AA&&baseline.startUs==16100&&baseline.pollUs==23100&&baseline.endUs==109200);
+ p.aaStartDelayUs=50000;
+ assert(!mulRangingPlanValidate(&p,NULL)&&mulRangingPlanEncode(bytes,&p)&&bytes[0]==4);
+ mulRangingPlan_t follower;assert(mulRangingPlanDecode(bytes,&follower)&&follower.aaStartDelayUs==50000);
+ assert(mulRangingPlanFingerprint(&p)==mulRangingPlanFingerprint(&follower)&&mulRangingPlanFingerprint(&p)!=0x826414cc);
+ for(unsigned c=0;c<200;c++) {
+  verify(&p,c);assert(mulRangingPlanCount(&p,c)==mulRangingPlanCount(&follower,c));
+  for(unsigned i=0;i<mulRangingPlanCount(&p,c);i++) {
+   mulRangingPlan_t zero=p;zero.aaStartDelayUs=0;
+   assert(mulRangingPlanOperation(&zero,c,i,&baseline));
+   assert(mulRangingPlanOperation(&p,c,i,&shifted)&&mulRangingPlanOperation(&follower,c,i,&remote));
+   assert(!memcmp(&shifted,&remote,sizeof(remote)));
+   unsigned delta=baseline.kind==MUL_PLAN_AA?50000:0;
+   assert(shifted.startUs==baseline.startUs+delta&&shifted.pollUs==baseline.pollUs+delta&&shifted.endUs==baseline.endUs+delta);
+  }
+ }
+ p.aaStartDelayUs=388850;assert(!mulRangingPlanValidate(&p,NULL));
+ p.aaStartDelayUs=388851;assert(mulRangingPlanValidate(&p,NULL)); // Peak2: AA can collide with AR.
+ p.aaStartDelayUs=UINT32_MAX;assert(mulRangingPlanValidate(&p,NULL));
+ p.enabled=MUL_PLAN_AA;p.aaStartDelayUs=871000;assert(mulRangingPlanValidate(&p,NULL)); // Cycle end.
+ p.aaStartDelayUs=0;assert(mulRangingPlanEncode(bytes,&p));
+ p.enabled=3;assert(mulRangingPlanEncode(bytes,&p)&&!memcmp(old,bytes,64));
+ bytes[53]=1;uint32_t crc=mulScheduleCrc(bytes,60);
+ for(unsigned j=0;j<4;j++)bytes[60+j]=(uint8_t)(crc>>(8*j));
+ assert(!mulRangingPlanDecode(bytes,&follower)); // Old version cannot smuggle delay.
+ p.policy=MUL_PLAN_FRESHNESS;p.aaStartDelayUs=50000;
+ assert(mulRangingPlanEncode(bytes,&p)&&mulRangingPlanDecode(bytes,&follower)&&follower.policy==MUL_PLAN_FRESHNESS);
+ verify(&follower,UINT32_MAX);
+ puts("AA delay: baseline hash/timing preserved; shared shifted windows, AR unchanged, collision/end rejection, codec4 roundtrip passed");
+}
+int main(void){matrix();fairness();freshness();startDelay();return 0;}

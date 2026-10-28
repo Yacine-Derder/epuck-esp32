@@ -14,7 +14,7 @@ def digest(blob):
 
 
 def fragment(data, out):
-    if data[11] != 1:
+    if data[11] not in (1, 2):
         raise ValueError(f'unsupported tdoa_replay schema {data[11]}')
     if (data[2] != 3 or data[6] != 2 or data[7] not in (4, 5) or data[8] != 2 or
             data[9] or data[10] != 1 or data[40] >= PARTS or data[41] != PARTS or
@@ -24,7 +24,7 @@ def fragment(data, out):
         raise ValueError('tdoa_replay fragment envelope')
     for key in ('raw_mm', 'calibrated_mm', 'raw_valid', 'calibration', 'calibrated_valid'):
         out.pop(key)
-    out.update(replay_schema=1, diagnostic_id=int.from_bytes(data[24:28], 'little'),
+    out.update(replay_schema=data[11], diagnostic_id=int.from_bytes(data[24:28], 'little'),
                diagnostic_dropped=int.from_bytes(data[28:32], 'little'), cycle=out['transaction'],
                part=data[40], parts=PARTS, pair_slot=data[49],
                digest=f'{int.from_bytes(data[44:48], "little"):08X}',
@@ -51,7 +51,7 @@ class Reader:
 
 
 def snapshot(blob, node):
-    if len(blob) != SIZE or blob[0] != 1:
+    if len(blob) != SIZE or blob[0] not in (1, 2):
         raise ValueError('replay snapshot size/version')
     r = Reader(blob)
     version, planned, slot, stationary = r.take(4)
@@ -107,6 +107,9 @@ def snapshot(blob, node):
                     ('uncertainty_ppb', 4, False), ('rejected', 4, False), ('accepted', 4, False),
                     ('resets', 4, False), ('count', 1, False), ('inliers', 1, False), ('ready', 1, False),
                     ('applied', 1, False), ('fallback', 1, False), ('compensated', 1, False)])
+    if version == 2:
+        fit['innovation_abs_dtu'] = fit['rms_dtu'] if clock['config_wire'][2:4] == '02' else None
+        fit['rms_dtu'] = None
     ages = [r.num(2), r.num(2)]
     status = [r.num(4), r.num(4)]
     now, mismatch = r.num(4), r.num(1)

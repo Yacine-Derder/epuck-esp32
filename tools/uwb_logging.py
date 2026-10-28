@@ -122,11 +122,11 @@ class CompactLog:
                 self.write(dict(base, type='error', reason=str(error), diagnostic_id=row['diagnostic_id']))
         elif event == 'clock':
             fields = ('reference_node', 'reference_sequence', 'reference_tx_dtu', 'local_rx_dtu',
-                      'applied_ppb', 'fitted_ppb', 'residual_rms_dtu', 'rejected_samples', 'fit_sigma_ppb',
+                      'applied_ppb', 'fitted_ppb', 'residual_rms_dtu', 'innovation_abs_dtu', 'rejected_samples', 'fit_sigma_ppb',
                       'mapping_age_ms', 'clock_estimator', 'clock_window', 'observation_count', 'inlier_count',
                       'mapping_status', 'fit_ready', 'fit_applied', 'fallback', 'propagation_compensated',
                       'mapping_epoch', 'physical_uncertainty', 'fit_uncertainty_scope',
-                      'clock_record_version', 'sample_period_ms', 'capture_age_ms', 'capture_valid')
+                      'applied_estimator', 'clock_record_version', 'sample_period_ms', 'capture_age_ms', 'capture_valid')
             self.write(dict(base, type='clock', node=row['node'], radio=row['radio'], epoch=row['epoch'],
                             u_ms=row['uptime_ms'], **{field: row[field] for field in fields}))
         elif event == 'tdoa_vector':

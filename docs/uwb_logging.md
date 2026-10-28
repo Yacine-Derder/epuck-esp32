@@ -345,7 +345,7 @@ mapping age/status and clock-epoch identity. Unknown sigma becomes null; conditi
 fit scatter excludes drift, propagation and geometry and is not physical accuracy.
 Default samples-off queue behavior and all previous record types remain unchanged.
 
-`cfg set clock_estimator median|regression` and `cfg set clock_window 8..32` require
+`cfg set clock_estimator MEDIAN_5|KALMAN` requires
 RF OFF. Use `clock show` for a saved/live snapshot. Both clock streams can be
 replayed with the canonical production-core tool in lps-node-firmware:
 
@@ -354,9 +354,9 @@ python3 tools/mul_clock_replay.py --summary ../uwb_logs/alr133.log
 python3 tools/mul_clock_replay.py --summary ../uwb_logs/EXPERIMENT-compact.jsonl
 ```
 
-The tool compares the actual median and robust regression, plus held-out offline
+The tool compares the actual Median-5 and Kalman, plus held-out offline
 linear/quadratic forecasts. It never applies a host correction to recorded TDoA
-and does not access devices. Fallback to median during changing apparent rate is
+and does not access devices. Fallback to a valid median when Kalman is unreliable is
 explicit in the record. Slot/device bias remains confounded without permutation
 and independently measured geometry; a slope is not proof of a clock root cause.
 
@@ -585,9 +585,11 @@ reference TX plus TX separation modulo2^40 when the relation is valid. Raw RLR a
 separation is the signed native40 difference of the two captured raw RX markers.
 The validator reports both reconstructed separations using production C.
 
-`calculation_revision` binds schema1 to canonical core
-`506913dc676d0a3c0d43c48977ef11be2085aa34` and the supported STM32 6000 ms propagation-age
-build. The validator verifies the vendor manifest before compilation. It does not
+`calculation_revision` identifies the original conversion model at core
+`506913dc676d0a3c0d43c48977ef11be2085aa34` and STM32 6000ms propagation-age build.
+The validator checks the six conversion-source SHA256 hashes against that baseline
+and verifies the complete current vendor manifest before compilation. The new
+estimator does not reinterpret historical logged rates. It does not
 trust hash equality as full schedule proof: the full local plan/schedule bytes are
 retained, including roster, period, spacing, timing budgets, priorities and rates.
 This captures the receiver's configuration; it cannot prove an ALR's undisclosed
@@ -710,8 +712,8 @@ capacity; short AA bursts exceed the four-line optional FIFO's instantaneous bud
 STM32 build/image and RAM/stack details are in
 `../epuck-stm32/docs/hybrid_uwb.md` (replay diagnostics). Both trace ON/OFF Release
 builds and reserved-configuration-sector checks pass. ESP32 build succeeds with
-854240-byte application binary in its 1048576-byte app partition, image sections
-854120 B, `.data + .bss` 53343 B; IDF reports DIRAM120874 B including executable RAM.
+854288-byte application binary in its 1048576-byte app partition, image sections
+854168 B, `.data + .bss` 53343 B; IDF reports DIRAM120874 B including executable RAM.
 The additive frame validator uses a bounded152-byte buffer and adds no persistent
 queue. Runtime whole-stack high-water, CPU latency and physical RF availability are
 not established by host tests. Existing unrelated compiler/SDK warnings remain.
@@ -719,7 +721,7 @@ not established by host tests. Existing unrelated compiler/SDK warnings remain.
 For the human operator only; none of these device operations was executed during
 implementation:
 
-1. Build STM32 using the exact `build/ReplayTelemetry` command in its guide, with
+1. Build STM32 using the exact `build/Universal` command in its guide, with
    `-DMUL_TDOA_REPLAY=ON`. Build ESP32 using the existing installed SDK:
 
    ```sh
@@ -735,14 +737,15 @@ implementation:
    cd ~/Documents/epuck-stm32
    source ~/.espressif/tools/activate_idf_v6.1.sh
    openocd -s "$OPENOCD_SCRIPTS" -f interface/stlink.cfg -f target/stm32f4x.cfg \
-     -c 'program build/ReplayTelemetry/EPuck_STM32.elf verify reset exit'
+     -c 'program build/Universal/EPuck_STM32.elf verify reset exit'
    cd ~/Documents/epuck-esp32
    python3 "$IDF_PATH/tools/idf.py" -p "$ESP32_PORT" flash
    ```
 
    `$ESP32_PORT` must be identified by the operator using the existing procedure in
    `docs/disconnect_diagnostics.md`. Preserve the current plan, RF state, calibration,
-   Wi-Fi credentials and estimator. No ALR flashing or plan rewrite is needed here.
+   Wi-Fi credentials and estimator. For the estimator refactor, ALRs also require the updated LPS image; see its
+   `docs/mul_commands.md`. No plan rewrite is required.
    Confirm full plan fields on each node; fingerprint826414CC alone is insufficient.
 
 3. In the existing stationary campaign, confirm telemetry/Wi-Fi are already enabled
@@ -783,3 +786,45 @@ implementation:
 
 Software status: **READY FOR HARDWARE VALIDATION**. Physical latency, stack watermark,
 UART margin and unchanged RF performance remain operator validation checks.
+
+
+### Median-5 / Kalman compatibility
+
+New clock type10 version3 uses method0=Median-5 or2=Kalman, fixed history5.
+`applied_estimator` explicitly reports `median_5`, `kalman` or `unavailable`.
+Fallback0/1/2/3 means used/warmup/uncertain/numerical. The former RMS slot carries
+absolute innovation for Kalman: JSON exposes `innovation_abs_dtu` and leaves
+`residual_rms_dtu` null. Conditional Kalman covariance is not a physical bound.
+Historical clock versions1/2 retain their regression labels and RMS meaning;
+there is no production regression estimator in the new core.
+
+Type15 and its384-byte snapshot use schema2 with the same fragment sizes/offsets
+and complete raw inputs. Schema1 recordings still decode. The production-C
+validator restores the logged mapping and applied rate; it never re-estimates a
+historical clock with today's selected filter. It verifies the current vendor
+manifest plus baseline conversion-source hashes, allowing the estimator to change
+without silently changing historical TDoA math. Both consumers pin core
+`5cb841f17859e84b300ff7b1c6fb462bccc6e1ae` from the LPS canonical package.
+The ESP firmware change is limited to the shared clock-envelope validator accepting
+version3; forwarding, control behavior, queues and Wi-Fi are unchanged.
+
+Portable verification (no devices):
+
+```sh
+cd ~/Documents/epuck-esp32
+bash tests/run_host.sh
+python3 tools/verify_tdoa_replay.py --paced --kalman
+python3 tools/validate_tdoa_replay.py ../uwb_logs/replay-full-20min/20261028T130040462965Z-robot-0-compact.jsonl --sanitize
+```
+
+The host suite includes old/new envelope decoding, persisted selection,45 new exact
+Kalman pairs, queue overflow and reconnect boundaries. The paced200-second virtual
+capture verifies140 complete interior pairs and explicitly reports the partial
+opening boundary. Its intentionally filtered auxiliary sequence gaps are retained
+as transport accounting, not hidden or confused with missing replay inputs.
+The old20-minute capture remains1190/1190 exact matches, complete, no mismatches.
+No physical RF accuracy, embedded deadline margin or stack watermark is established.
+Use the operator-only programming procedure above with the Universal ELF and updated
+ESP binary, preserve saved plans/calibration, then select each estimator only with
+RF OFF and record firmware revisions and selected method for all nodes. The ALRs
+need the updated LPS firmware as well. No device operation was run for this refactor.

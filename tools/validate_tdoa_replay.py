@@ -18,8 +18,14 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def validate(path, stm32, sanitize=False):
     manifest = json.loads((Path(stm32)/'ThirdParty/mul_core/UPSTREAM.json').read_text())
-    if manifest['revision'] != '506913dc676d0a3c0d43c48977ef11be2085aa34':
-        raise ValueError('schema 1 requires its recorded production core revision')
+    # Estimator changes must not silently change the baseline conversion code.
+    # These source hashes are the recorded schema1 implementation; both schemas
+    # replay the logged rate, never re-estimate a historical clock.
+    import hashlib
+    expected = {'mul_clock.c': 'd5bc1a0e60b4e776d798d6c0a82c7d4e3c21a4ed6e83de3f0a508d5be35c97d1', 'mul_downlink.c': '38e80a8bd574f63a801eabcdc97022f76e619b3e756853391a298d97e2ae65c7', 'mul_localization.c': 'd0e20790e53d2e666044e77077da8ab646a5f87c5e3343be587b18b92929c7ce', 'mul_relation.c': '7ee7c9742b736d7940ff03cccddc02b1852d723ed4cc77bb62bd179930938a6f', 'mul_observation.c': 'd11e7be4921586382f2a908ca832fd66ae753cf35813bc534e5ec596593639a0', 'mul_common.c': '1c1eaa4dae7fd97b1ef87d315a167836f0ace3b08589b0dc60a6f9a1b1e085c0'}
+    for name,digest_value in expected.items():
+        if hashlib.sha256((Path(stm32)/'ThirdParty/mul_core'/name).read_bytes()).hexdigest()!=digest_value:
+            raise ValueError('unsupported baseline conversion source: '+name)
     records, invalid, losses, incomplete, vectors = [], [], [], [], {}
     identities = set()
     for line_no, line in enumerate(Path(path).read_text().splitlines(), 1):

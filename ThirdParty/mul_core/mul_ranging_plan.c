@@ -3,7 +3,7 @@
 #include <string.h>
 static void put(uint8_t *p,uint32_t n,unsigned bytes){for(unsigned i=0;i<bytes;i++)p[i]=(uint8_t)(n>>(8*i));}
 static uint32_t get(const uint8_t *p,unsigned bytes){uint32_t n=0;for(unsigned i=0;i<bytes;i++)n|=(uint32_t)p[i]<<(8*i);return n;}
-uint8_t mulRangingPlanVersion(const mulRangingPlan_t *p){return p&&p->policy==MUL_PLAN_FRESHNESS?MUL_PLAN_FRESHNESS_VERSION:MUL_PLAN_VERSION;}
+uint8_t mulRangingPlanVersion(const mulRangingPlan_t *p){return p&&p->aaStartDelayUs?MUL_PLAN_DELAY_VERSION:p&&p->policy==MUL_PLAN_FRESHNESS?MUL_PLAN_FRESHNESS_VERSION:MUL_PLAN_VERSION;}
 const char *mulRangingPlanValidate(const mulRangingPlan_t *p,mulRangingBudget_t *out) {
  if(!p)return "missing ranging plan";
  const char *error=mulScheduleValidate(&p->broadcast);if(error)return error;
@@ -49,6 +49,13 @@ const char *mulRangingPlanValidate(const mulRangingPlan_t *p,mulRangingBudget_t 
                             ((uint64_t)b.arPairs*p->arMilliHz*s->periodMs+999999)/1000000);
  }
  if(b.peakOperations>b.capacity)return "requested per-pair rates exceed guarded airtime/capacity";
+ /* Keep all original placements, rates and occupied-airtime accounting. The
+  * peak-count spacing is a conservative lower bound for every cycle and class
+  * ordering: even AA immediately followed by AR must remain disjoint. */
+ if(p->aaStartDelayUs>b.usableEndUs-b.dataEndUs||
+    (b.aaPairs&&p->aaMilliHz&&b.peakOperations&&
+     p->aaStartDelayUs>(b.usableEndUs-b.dataEndUs)/b.peakOperations-b.reservationUs))
+  return "AA delay overlaps reservation/cycle end";
  if(out)*out=b;
  return NULL;
 }
@@ -108,6 +115,7 @@ bool mulRangingPlanOperation(const mulRangingPlan_t *p,uint32_t cycle,unsigned i
  }
  uint32_t span=b.usableEndUs-b.dataEndUs;
  o.startUs=b.dataEndUs+(uint32_t)((uint64_t)index*span/n);
+ if(selectAa)o.startUs+=p->aaStartDelayUs;
  o.pollUs=o.startUs+b.prepareUs;o.endUs=o.startUs+b.reservationUs;
  if(o.endUs>b.usableEndUs)return false;
  *out=o;return true;
@@ -117,15 +125,17 @@ bool mulRangingPlanEncode(uint8_t out[MUL_PLAN_BYTES],const mulRangingPlan_t *p)
  uint8_t b[MUL_PLAN_BYTES]={0};b[0]=mulRangingPlanVersion(p);b[1]=p->enabled;b[2]=p->replyMs;b[3]=p->maxUtilization;
  if(!mulScheduleEncode(b+4,&p->broadcast))return false;
  b[36]=p->rlrCount;memcpy(b+37,p->rlrs,MUL_MAX_RLRS);
- put(b+46,p->aaMilliHz,2);put(b+48,p->arMilliHz,2);b[50]=p->policy;b[51]=p->aaPriority;b[52]=p->arPriority;put(b+60,mulScheduleCrc(b,60),4);
+ put(b+46,p->aaMilliHz,2);put(b+48,p->arMilliHz,2);b[50]=p->policy;b[51]=p->aaPriority;b[52]=p->arPriority;put(b+53,p->aaStartDelayUs,4);put(b+60,mulScheduleCrc(b,60),4);
  memcpy(out,b,sizeof(b));return true;
 }
 const char *mulRangingPlanDecodeError(const uint8_t in[MUL_PLAN_BYTES],mulRangingPlan_t *out) {
- if(!in||!out||(in[0]!=MUL_PLAN_VERSION&&in[0]!=MUL_PLAN_FRESHNESS_VERSION)||in[45]||get(in+60,4)!=mulScheduleCrc(in,60))return "ranging plan version/CRC/header";
+ if(!in||!out||(in[0]!=MUL_PLAN_VERSION&&in[0]!=MUL_PLAN_FRESHNESS_VERSION&&in[0]!=MUL_PLAN_DELAY_VERSION)||in[45]||get(in+60,4)!=mulScheduleCrc(in,60))return "ranging plan version/CRC/header";
  if((in[0]==MUL_PLAN_VERSION&&(in[50]||in[51]||in[52]))||(in[0]==MUL_PLAN_FRESHNESS_VERSION&&in[50]!=MUL_PLAN_FRESHNESS))return "ranging plan policy/version";
- for(unsigned i=53;i<60;i++)if(in[i])return "ranging plan reserved bytes";
+ if(in[0]!=MUL_PLAN_DELAY_VERSION&&get(in+53,4))return "ranging plan delay/version";
+ if(in[0]==MUL_PLAN_DELAY_VERSION&&!get(in+53,4))return "ranging plan delay/version";
+ for(unsigned i=57;i<60;i++)if(in[i])return "ranging plan reserved bytes";
  mulRangingPlan_t p={.enabled=in[1],.replyMs=in[2],.maxUtilization=in[3],.rlrCount=in[36],
- .policy=in[50],.aaPriority=in[51],.arPriority=in[52],.aaMilliHz=(uint16_t)get(in+46,2),.arMilliHz=(uint16_t)get(in+48,2)};
+ .aaStartDelayUs=get(in+53,4),.policy=in[50],.aaPriority=in[51],.arPriority=in[52],.aaMilliHz=(uint16_t)get(in+46,2),.arMilliHz=(uint16_t)get(in+48,2)};
  if(!mulScheduleDecode(in+4,&p.broadcast))return "invalid broadcast timing/roster";
  memcpy(p.rlrs,in+37,MUL_MAX_RLRS);const char *error=mulRangingPlanValidate(&p,NULL);if(error)return error;
  *out=p;return NULL;

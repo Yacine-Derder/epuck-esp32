@@ -1,134 +1,275 @@
 /* SPDX-License-Identifier: LGPL-3.0-or-later */
 #include "mul_clock_fit.h"
+#include <math.h>
 #include <string.h>
-#define SCALE INT64_C(65536)
-#define BILLION INT64_C(1000000000)
-static uint32_t sat(uint32_t n){return n==UINT32_MAX?n:n+1;}
-static int64_t divide(int64_t n,int64_t d){return (n+(n<0?-d/2:d/2))/d;}
-static uint64_t magnitude(int64_t v){return (uint64_t)(v<0?-v:v);}
-static uint32_t root(uint64_t x) {
- uint64_t r=0,bit=UINT64_C(1)<<62;
- while(bit>x)bit>>=2;
- while(bit){if(x>=r+bit){x-=r+bit;r=(r>>1)+bit;}else r>>=1;bit>>=2;}
- return (uint32_t)r;
+#if defined(__GNUC__)
+#define SHARED_HELPER __attribute__((noinline))
+#else
+#define SHARED_HELPER
+#endif
+#define R 1024.0
+#define K 63.8976 /* DTU/s per ppb */
+#define Q 1.0     /* drift random-walk spectral density, ppb^2/s^3 */
+static uint32_t sat(uint32_t n) { return n == UINT32_MAX ? n : n + 1; }
+void mulClockFitDefaults(mulClockFitConfig_t *c) {
+  *c = (mulClockFitConfig_t){
+      .periodMs = 1000, .gateDtu = 256, .window = 5, .minSamples = 5};
 }
-void mulClockFitDefaults(mulClockFitConfig_t *c){*c=(mulClockFitConfig_t){.periodMs=1000,.gateDtu=256,.window=24,.minSamples=8};}
 bool mulClockFitConfigValid(const mulClockFitConfig_t *c) {
- return c&&c->estimator<=1&&c->periodMs>=10&&c->periodMs<=2000&&c->gateDtu>=16&&
-  c->window>=8&&c->window<=32&&c->minSamples>=6&&c->minSamples<=c->window&&c->compensate<=1;
+  return c &&
+         (c->estimator == mulClockEstimatorMedian ||
+          c->estimator == mulClockEstimatorKalman) &&
+         c->periodMs >= 10 && c->periodMs <= 2000 && c->window == 5 &&
+         c->minSamples == 5 && c->gateDtu >= 16 && c->compensate <= 1;
 }
-void mulClockFitReset(mulClockFit_t *s){memset(s,0,sizeof(*s));s->uncertaintyPpb=UINT32_MAX;}
-/* Compute sxy/sxx inQ24 via bounded binary division; no128-bit type, FPU,
- * numerator*1e9 overflow, or double-library dependency on Cortex-M0. */
-static bool slope(int64_t xy,int64_t xx,int32_t *out) {
- if(xx<=0)return false;
- uint64_t n=magnitude(xy),d=(uint64_t)xx,q=n/d,r=n%d;
- if(q>32)return false;
- for(unsigned bit=0;bit<24;bit++){r*=2;q=q*2+(r>=d);if(r>=d)r-=d;}
- int64_t ppb=divide((int64_t)q*BILLION,SCALE*(INT64_C(1)<<24));
- if(ppb>MUL_CLOCK_MAX_PPB)return false;
- *out=(int32_t)(xy<0?-ppb:ppb);return true;
+void mulClockFitReset(mulClockFit_t *s) {
+  memset(s, 0, sizeof(*s));
+  s->uncertaintyPpb = UINT32_MAX;
 }
-static int64_t residual(const mulClockFit_t *s,unsigned i) {
- return (int64_t)s->y[i]-s->centerY-divide(((int64_t)s->x[i]-s->centerX)*s->skewPpb*SCALE,BILLION);
-}
-static bool solve(mulClockFit_t *s,uint32_t mask) {
- int64_t sx=0,sy=0;unsigned n=0;
- for(unsigned i=0;i<s->count;i++)if(mask&(UINT32_C(1)<<i)){sx+=s->x[i];sy+=s->y[i];n++;}
- if(n<6)return false;
- s->centerX=(int32_t)divide(sx,n);s->centerY=(int32_t)divide(sy,n);
- int64_t xx=0,xy=0;
- for(unsigned i=0;i<s->count;i++)if(mask&(UINT32_C(1)<<i)) {
-  int64_t dx=(int64_t)s->x[i]-s->centerX,dy=(int64_t)s->y[i]-s->centerY;xx+=dx*dx;xy+=dx*dy;
- }
- if(!slope(xy,xx,&s->skewPpb))return false;
- uint64_t squares=0;
- for(unsigned i=0;i<s->count;i++)if(mask&(UINT32_C(1)<<i)) {
-  uint64_t r=magnitude(residual(s,i));if(r>(UINT64_C(1)<<28))return false;squares+=r*r;
- }
- s->inliers=(uint8_t)n;s->rmsDtu=root(squares/n);
- uint32_t spread=root((uint64_t)xx);
- /* Conditional fit-scatter diagnostic, NOT total oscillator/geometry uncertainty. */
- s->uncertaintyPpb=spread?(uint32_t)(((uint64_t)s->rmsDtu*1000000000+spread*SCALE-1)/(spread*SCALE)):UINT32_MAX;
- return true;
-}
-static bool fit(mulClockFit_t *s,const mulClockFitConfig_t *c) {
- uint32_t all=s->count==32?UINT32_MAX:(UINT32_C(1)<<s->count)-1;
- if(s->count<c->minSamples||!solve(s,all))return false;
- uint32_t distances[32];
- for(unsigned i=0;i<s->count;i++){uint64_t r=magnitude(residual(s,i));distances[i]=r>UINT32_MAX?UINT32_MAX:(uint32_t)r;}
- for(unsigned i=1;i<s->count;i++){uint32_t v=distances[i];unsigned j=i;while(j&&distances[j-1]>v){distances[j]=distances[j-1];j--;}distances[j]=v;}
- uint64_t gate=6*(uint64_t)distances[s->count/2];if(gate<c->gateDtu)gate=c->gateDtu;
- uint32_t keep=0;
- for(unsigned i=0;i<s->count;i++)if(magnitude(residual(s,i))<=gate)keep|=UINT32_C(1)<<i;
- return solve(s,keep)&&s->inliers>=c->minSamples;
-}
-static void seed(mulClockFit_t *s,uint64_t epoch,uint64_t tx,uint64_t rx,bool corrected) {
- uint32_t rejected=s->rejected,accepted=s->accepted,resets=s->resets;
- mulClockFitReset(s);s->rejected=rejected;s->accepted=accepted;s->resets=sat(resets);
- s->epoch=epoch;s->lastTx=tx;s->lastRx=rx;s->count=1;s->next=1;s->compensated=corrected;
-}
-mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,mulClock_t *clock,
- mulClockFit_t *s,const mulClockFitConfig_t *c,const mulTestPacket_t *p,uint64_t rx,
- uint32_t now,bool valid,const mulClockDelay_t *delay) {
- if(!clock||!s||!mulClockFitConfigValid(c))return mulClockIgnored;
- mulClock_t previous=*clock;
- mulClockResult_t result=mulClockObservePeriodNetwork(network,clock,p,rx,now,valid,c->periodMs);
- if(result==mulClockIgnored||c->estimator==mulClockEstimatorMedian)return result;
- bool corrected=c->compensate&&mulClockDelayStatusNetwork(network,clock,delay,now)==mulClockDelayValid;
- uint64_t fittedRx=rx;
- if(corrected)fittedRx=mulTimestampMask(rx-delay->oneWayDtu-divide(delay->oneWayDtu*previous.skewPpb,BILLION));
- if(result==mulClockDiscontinuity||s->epoch!=clock->epoch||!s->count||s->compensated!=corrected||s->count>c->window) {
-  seed(s,clock->epoch,p->txTimestamp,fittedRx,corrected);return result;
- }
- int64_t dt=mulTimestampDifference(p->txTimestamp,s->lastTx),dr=mulTimestampDifference(fittedRx,s->lastRx);
- if(dt<=0||dr<=0||dt>INT64_C(198082560000)) {seed(s,clock->epoch,p->txTimestamp,fittedRx,corrected);return result;}
- int64_t phase=s->phase+dr-dt;uint64_t elapsed=s->elapsed+(uint64_t)dt;
- if(elapsed>UINT64_C(7667712000000)||magnitude(phase)>INT32_MAX) {seed(s,clock->epoch,p->txTimestamp,fittedRx,corrected);return result;}
- int64_t x=(int64_t)(elapsed/SCALE);
- if(s->ready) {
-  int64_t error=phase-s->centerY-divide((x-s->centerX)*s->skewPpb*SCALE,BILLION);
-  uint64_t gate=6*(uint64_t)s->rmsDtu;if(gate<c->gateDtu)gate=c->gateDtu;
-  if(magnitude(error)>gate) {
-   s->rejected=sat(s->rejected);s->consecutive++;s->applied=0;s->fallback=mulClockFitOutlier;
-   if(s->consecutive<3){clock->skewPpb=previous.skewPpb;clock->status=mulClockWarmup;return mulClockIgnored;}
-   // A persistent oscillator/propagation transient must recover rather than lock out.
-   seed(s,clock->epoch,p->txTimestamp,fittedRx,corrected);return result;
+/* Three-state LDL covariance check; pivots retain their state units, so
+ * roundoff tolerance scales with the corresponding diagonal. Nonpositive
+ * leading pivots fail closed (initialized/Q/R covariance is positive definite).
+ */
+static bool healthy(const double x[3], double p[3][3]) {
+  for (unsigned i = 0; i < 3; i++) {
+    if (!isfinite(x[i]) || !isfinite(p[i][i]) || p[i][i] <= 0)
+      return false;
+    for (unsigned j = 0; j < 3; j++)
+      if (!isfinite(p[i][j]))
+        return false;
+    for (unsigned j = 0; j < i; j++)
+      if (fabs(p[i][j] - p[j][i]) > 1e-12 * (fabs(p[i][j]) + fabs(p[j][i]) + 1))
+        return false;
   }
- }
- s->consecutive=0;
- if(s->count==c->window) {
-  unsigned oldest=(s->next+1)%c->window;int32_t bx=s->x[oldest],by=s->y[oldest];
-  for(unsigned i=0;i<s->count;i++){s->x[i]-=bx;s->y[i]-=by;}
-  elapsed-=(uint64_t)bx*SCALE;phase-=by;x-=bx;
- }else s->count++;
- s->x[s->next]=(int32_t)x;s->y[s->next]=(int32_t)phase;s->next=(s->next+1)%c->window;
- s->elapsed=elapsed;s->phase=phase;s->lastTx=p->txTimestamp;s->lastRx=fittedRx;s->accepted=sat(s->accepted);
- s->ready=fit(s,c);
- s->applied=0;s->fallback=mulClockFitWarmup;
- if(s->ready) {
-  // A long linear window estimates its center frequency. Detect disagreement
-  // with the robust recent interval rate before applying it to a drifting clock.
-  uint32_t deviations[MUL_CLOCK_HISTORY];
-  for(unsigned i=0;i<clock->count;i++)deviations[i]=(uint32_t)magnitude((int64_t)clock->history[i]-clock->skewPpb);
-  for(unsigned i=1;i<clock->count;i++){uint32_t v=deviations[i];unsigned j=i;while(j&&deviations[j-1]>v){deviations[j]=deviations[j-1];j--;}deviations[j]=v;}
-  uint64_t scatter=clock->count?deviations[clock->count/2]:UINT32_MAX;
-  if(scatter<s->uncertaintyPpb)scatter=s->uncertaintyPpb;
-  uint64_t threshold=6*scatter;if(threshold<10)threshold=10;
-  if(clock->status==mulClockValid&&magnitude((int64_t)clock->skewPpb-s->skewPpb)>threshold)s->fallback=mulClockFitChangingRate;
-  else {clock->skewPpb=s->skewPpb;clock->status=mulClockValid;s->applied=1;s->fallback=mulClockFitUsed;}
- }
- return result;
+  double a = p[0][1] / p[0][0], b = p[0][2] / p[0][0];
+  double d = p[1][1] - a * p[0][1];
+  if (!isfinite(d) || d <= 0)
+    return false;
+  double cross = p[1][2] - b * p[0][1];
+  double last = p[2][2] - b * p[0][2] - cross * cross / d;
+  return isfinite(last) && last >= -1e-12 * p[2][2];
 }
-
-bool mulClockFitConfigEncode(uint8_t out[MUL_CLOCK_CONFIG_BYTES],const mulClockFitConfig_t *c) {
- if(!out||!mulClockFitConfigValid(c))return false;
- uint8_t b[MUL_CLOCK_CONFIG_BYTES]={1,c->estimator,c->window,c->minSamples,c->periodMs&255,c->periodMs>>8,c->gateDtu&255,c->gateDtu>>8,c->compensate,0,0,0};
- memcpy(out,b,sizeof(b));return true;
+/* Inputs here are nonnegative and bounded before conversion; exact ceiling
+ * without pulling general-purpose libm rounding routines into Cortex-M0. */
+static SHARED_HELPER uint32_t ceiling(double v) {
+  uint32_t n = (uint32_t)v;
+  return n + (v > n);
 }
-bool mulClockFitConfigDecode(const uint8_t in[MUL_CLOCK_CONFIG_BYTES],mulClockFitConfig_t *c) {
- if(!in||!c||in[0]!=1||in[9]||in[10]||in[11])return false;
- mulClockFitConfig_t candidate={.estimator=in[1],.window=in[2],.minSamples=in[3],.periodMs=(uint16_t)(in[4]|in[5]<<8),.gateDtu=(uint16_t)(in[6]|in[7]<<8),.compensate=in[8]};
- if(!mulClockFitConfigValid(&candidate))return false;
- *c=candidate;return true;
+static bool predict(const mulClockFit_t *s, double d, double x[3],
+                    double p[3][3], double horizon) {
+  if (!s || !s->count || !isfinite(d) || d < 0 || d > horizon)
+    return false;
+  const double f[3][3] = {{1, K * d, K * d * d / 2}, {0, 1, d}, {0, 0, 1}};
+  const double q[3][3] = {{K * K * d * d * d * d * d / 20,
+                           K * d * d * d * d / 8, K * d * d * d / 6},
+                          {K * d * d * d * d / 8, d * d * d / 3, d * d / 2},
+                          {K * d * d * d / 6, d * d / 2, d}};
+  for (unsigned i = 0; i < 3; i++) {
+    x[i] = 0;
+    for (unsigned j = 0; j < 3; j++)
+      x[i] += f[i][j] * s->state[j];
+    for (unsigned j = 0; j < 3; j++) {
+      p[i][j] = Q * q[i][j];
+      for (unsigned a = 0; a < 3; a++)
+        for (unsigned b = 0; b < 3; b++)
+          p[i][j] += f[i][a] * s->covariance[a][b] * f[j][b];
+    }
+  }
+  return healthy(x, p);
+}
+bool mulClockFitPredict(const mulClockFit_t *s, double d, double x[3],
+                        double p[3][3]) {
+  return predict(s, d, x, p, 2);
+}
+static SHARED_HELPER void seed(mulClockFit_t *s, uint64_t epoch, uint64_t tx,
+                               uint64_t rx, bool corrected) {
+  uint32_t a = s->accepted, r = s->rejected, n = s->resets;
+  mulClockFitReset(s);
+  s->accepted = a;
+  s->rejected = r;
+  s->resets = sat(n);
+  s->epoch = epoch;
+  s->lastTx = tx;
+  s->lastRx = rx;
+  s->count = 1;
+  s->compensated = corrected;
+  s->covariance[0][0] = R;
+  s->covariance[1][1] = 1e10;
+  s->covariance[2][2] = 1e4;
+}
+static bool update(mulClockFit_t *s, double d, int64_t phase) {
+  double x[3], p[3][3];
+  if (!predict(s, d, x, p, 3))
+    return false;
+  double innovation = (double)phase - x[0], sigma = sqrt(p[0][0] + R);
+  double weight =
+      fabs(innovation) > 4 * sigma ? 4 * sigma / fabs(innovation) : 1;
+  if (weight < 1)
+    s->rejected = sat(s->rejected);
+  double effective = R / (weight * weight), gain[3], a[3][3], out[3][3];
+  for (unsigned i = 0; i < 3; i++) {
+    gain[i] = p[i][0] / (p[0][0] + effective);
+    x[i] += gain[i] * innovation;
+    for (unsigned j = 0; j < 3; j++)
+      a[i][j] = (i == j) - gain[i] * (j == 0);
+  }
+  for (unsigned i = 0; i < 3; i++)
+    for (unsigned j = 0; j < 3; j++) {
+      out[i][j] = effective * gain[i] * gain[j];
+      for (unsigned b = 0; b < 3; b++)
+        for (unsigned c = 0; c < 3; c++)
+          out[i][j] += a[i][b] * p[b][c] * a[j][c];
+    }
+  for (unsigned i = 0; i < 3; i++)
+    for (unsigned j = 0; j < i; j++)
+      out[i][j] = out[j][i] = (out[i][j] + out[j][i]) / 2;
+  if (!healthy(x, out))
+    return false;
+  memcpy(s->state, x, sizeof(x));
+  memcpy(s->covariance, out, sizeof(out));
+  s->rmsDtu =
+      fabs(innovation) >= UINT32_MAX ? UINT32_MAX : ceiling(fabs(innovation));
+  return true;
+}
+mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
+                                       mulClock_t *clock, mulClockFit_t *s,
+                                       const mulClockFitConfig_t *c,
+                                       const mulTestPacket_t *p, uint64_t rx,
+                                       uint32_t now, bool valid,
+                                       const mulClockDelay_t *delay) {
+  if (!clock || !s || !mulClockFitConfigValid(c))
+    return mulClockIgnored;
+  int32_t previous = clock->skewPpb;
+  mulClockResult_t result = mulClockObservePeriodNetwork(
+      network, clock, p, rx, now, valid, c->periodMs);
+  if (result == mulClockIgnored)
+    return result;
+  if (!clock->epoch) {
+    clock->status = mulClockWarmup;
+    s->ready = s->applied = 0;
+    s->fallback = mulClockFitNumerical;
+    return result;
+  }
+  if (c->estimator == mulClockEstimatorMedian) {
+    s->epoch = clock->epoch;
+    s->count = clock->count;
+    s->inliers = clock->count;
+    s->ready = clock->status == mulClockValid;
+    s->applied = 0;
+    s->fallback = s->ready ? mulClockFitUsed : mulClockFitWarmup;
+    s->skewPpb = clock->skewPpb;
+    s->uncertaintyPpb = UINT32_MAX;
+    return result; // Median scatter is not covariance.
+  }
+  bool corrected =
+      c->compensate && mulClockDelayStatusNetwork(network, clock, delay, now) ==
+                           mulClockDelayValid;
+  uint64_t fittedRx = rx;
+  if (corrected) {
+    int64_t n = delay->oneWayDtu * previous;
+    fittedRx =
+        mulTimestampMask(rx - delay->oneWayDtu -
+                         (n + (n < 0 ? -500000000 : 500000000)) / 1000000000);
+  }
+  s->applied = 0;
+  s->fallback = mulClockFitWarmup;
+  if (result == mulClockDiscontinuity || s->epoch != clock->epoch ||
+      !s->count || s->compensated != corrected) {
+    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected);
+    return result;
+  }
+  int64_t dt = mulTimestampDifference(p->txTimestamp, s->lastTx),
+          dr = mulTimestampDifference(fittedRx, s->lastRx);
+  if (dt <= 0 || dr <= 0 || dt >= INT64_C(191692800000) ||
+      s->phase > INT64_MAX - INT64_C(1000000000) ||
+      s->phase < INT64_MIN + INT64_C(1000000000)) {
+    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected);
+    return result;
+  }
+  int64_t phase = s->phase + dr - dt;
+  if (!update(s, (double)dt / 63897600000., phase)) {
+    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected);
+    s->fallback = mulClockFitNumerical;
+    return result;
+  }
+  s->phase = phase;
+  s->lastTx = p->txTimestamp;
+  s->lastRx = fittedRx;
+  s->accepted = sat(s->accepted);
+  if (s->count < 5)
+    s->count++;
+  s->inliers = s->count;
+  /* Same base-slot average-rate intervention as the reference prototype. */
+  double half = mulNetworkSlotMs(network) / 2000.;
+  double rate = s->state[1] + half * s->state[2];
+  double variance = s->covariance[1][1] + 2 * half * s->covariance[1][2] +
+                    half * half * s->covariance[2][2];
+  double sigma = sqrt(variance);
+  s->uncertaintyPpb =
+      !isfinite(sigma) || sigma >= UINT32_MAX ? UINT32_MAX : ceiling(sigma);
+  /* 1ppm conditional sigma ceiling reuses the existing median stability scale;
+   * not a physical accuracy bound. Five intervals are required on both methods.
+   */
+  bool mature = clock->count == 5 && s->count == 5;
+  s->ready = mature && isfinite(rate) && fabs(rate) <= MUL_CLOCK_MAX_PPB &&
+             isfinite(sigma) && variance >= 0 &&
+             sigma <= MUL_CLOCK_STABILITY_PPB;
+  s->skewPpb = isfinite(rate) && fabs(rate) <= MUL_CLOCK_MAX_PPB
+                   ? (int32_t)(rate + (rate < 0 ? -.5 : .5))
+                   : 0;
+  /* A robust frequency fit cannot validate a grossly displaced RAW mapping
+   * origin. Reuse the median's one-ppm interval stability gate after startup;
+   * keep filtering, but expose this observation as unavailable in both methods.
+   */
+  if (mature &&
+      s->rmsDtu > K * ((double)dt / 63897600000.) * MUL_CLOCK_STABILITY_PPB) {
+    clock->status = mulClockWarmup;
+    s->ready = 0;
+    s->fallback = mulClockFitUncertain;
+    return result;
+  }
+  if (s->ready) {
+    clock->skewPpb = s->skewPpb;
+    clock->status = mulClockValid;
+    s->applied = 1;
+    s->fallback = mulClockFitUsed;
+  } else
+    s->fallback = mature ? mulClockFitUncertain : mulClockFitWarmup;
+  return result;
+}
+bool mulClockFitConfigEncode(uint8_t out[MUL_CLOCK_CONFIG_BYTES],
+                             const mulClockFitConfig_t *c) {
+  if (!out || !mulClockFitConfigValid(c))
+    return false;
+  uint8_t b[12] = {2,
+                   c->estimator,
+                   5,
+                   5,
+                   c->periodMs & 255,
+                   c->periodMs >> 8,
+                   c->gateDtu & 255,
+                   c->gateDtu >> 8,
+                   c->compensate,
+                   0,
+                   0,
+                   0};
+  memcpy(out, b, 12);
+  return true;
+}
+bool mulClockFitConfigDecode(const uint8_t in[MUL_CLOCK_CONFIG_BYTES],
+                             mulClockFitConfig_t *c) {
+  if (!in || !c || (in[0] != 1 && in[0] != 2) || in[9] || in[10] || in[11])
+    return false;
+  if (in[0] == 2 && (in[2] != 5 || in[3] != 5))
+    return false;
+  mulClockFitConfig_t v = {.estimator = in[0] == 2 && in[1] == 2 ? 2 : 0,
+                           .window = 5,
+                           .minSamples = 5,
+                           .periodMs = (uint16_t)(in[4] | in[5] << 8),
+                           .gateDtu = (uint16_t)(in[6] | in[7] << 8),
+                           .compensate = in[8]};
+  if (!mulClockFitConfigValid(&v))
+    return false;
+  *c = v;
+  return true;
 }

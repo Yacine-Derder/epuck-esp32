@@ -1,86 +1,125 @@
 #include "mul_clock_fit.h"
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#define MS INT64_C(63897600)
-static int64_t scale(int64_t t,int32_t ppb){return t+(t/1000000000)*ppb+(t%1000000000)*ppb/1000000000;}
-static void packet(mulTestPacket_t *p,uint32_t seq,int64_t time){*p=(mulTestPacket_t){.sequence=seq,.txTimestamp=mulTimestampMask(time)};memcpy(p->source,mulDefaultNetwork.addresses[0],8);}
-static void stationary(unsigned period,int32_t ppb,unsigned window) {
- mulClock_t median,reg;mulClockReset(&median);mulClockReset(&reg);mulClockFit_t fit;mulClockFitReset(&fit);
- mulClockFitConfig_t c;mulClockFitDefaults(&c);c.estimator=1;c.periodMs=period;c.window=window;
- int64_t medianError=0,fitError=0;unsigned compared=0;uint32_t noise=1;
- for(unsigned i=0;i<2000;i++) {
-  if(period<2000&&i%37==13)continue;
-  int64_t t=(int64_t)i*period*MS;noise=noise*1664525u+1013904223u;
-  int64_t jitter=(int)(noise%61)-30;bool outlier=i==1000;
-  mulTestPacket_t p;packet(&p,UINT32_MAX-8+i,MUL_TIMESTAMP_MASK-300*MS+t);
-  uint64_t rx=mulTimestampMask(900000+scale(t,ppb)+jitter+(outlier?100000:0));uint32_t now=UINT32_MAX-5000+i*period;
-  mulClockObservePeriodNetwork(NULL,&median,&p,rx,now,true,period);
-  mulClockResult_t result=mulClockObserveFitted(NULL,&reg,&fit,&c,&p,rx,now,true,NULL);
-  if(outlier&&fit.ready){assert(result==mulClockIgnored&&fit.rejected&&reg.status!=mulClockValid);assert(reg.sequence==p.sequence);}
-  if(i>100&&fit.ready&&!outlier&&reg.status==mulClockValid){medianError+=abs(median.skewPpb-ppb);fitError+=abs(reg.skewPpb-ppb);compared++;assert(abs(reg.skewPpb-ppb)<=3);}
- }
- fprintf(stderr,"case p=%u ppb=%ld count=%u rejected=%lu compared=%u ready=%u resets=%lu\n",period,(long)ppb,fit.count,(unsigned long)fit.rejected,compared,fit.ready,(unsigned long)fit.resets);
- assert(compared>1500&&fit.count==window&&fit.rejected);
- assert(fitError<=medianError);printf("period=%u skew=%ld window=%u median_abs_sum=%lld fit_abs_sum=%lld rejected=%lu rms_dtu=%lu size=%zu\n",period,(long)ppb,window,(long long)medianError,(long long)fitError,(unsigned long)fit.rejected,(unsigned long)fit.rmsDtu,sizeof(fit));
- // Invalid/wrong-source/replayed observations cannot mutate fit state.
- mulClockFit_t old=fit;mulTestPacket_t bad;packet(&bad,reg.sequence,reg.referenceTx);
- assert(mulClockObserveFitted(NULL,&reg,&fit,&c,&bad,reg.localRx,reg.observedMs,true,NULL)==mulClockIgnored);
- assert(!memcmp(&old,&fit,sizeof(fit)));
+#define DT INT64_C(63897600000)
+static void observation(mulClock_t *clock, mulClockFit_t *fit,
+                        mulClockFitConfig_t *cfg, unsigned seq, uint64_t tx,
+                        uint64_t rx, uint32_t now) {
+  mulTestPacket_t p = {.sequence = seq, .txTimestamp = tx};
+  memcpy(p.source, mulDefaultNetwork.addresses[0], 8);
+  mulClockObserveFitted(NULL, clock, fit, cfg, &p, rx, now, true, NULL);
 }
-static void mobile(void) {
- mulClock_t raw,corrected;mulClockReset(&raw);mulClockReset(&corrected);mulClockFit_t a,b;mulClockFitReset(&a);mulClockFitReset(&b);
- mulClockFitConfig_t c;mulClockFitDefaults(&c);c.estimator=1;
- // Path grows by64DTU/s (~0.3m/s), deliberately distinguishable from oscillator.
- for(unsigned i=0;i<80;i++) {
-  int64_t t=(int64_t)i*1000*MS,delay=1000+64*i;mulTestPacket_t p;packet(&p,i,100000+t);
-  uint64_t rx=mulTimestampMask(800000+scale(t+delay,12000));uint32_t now=10000+i*1000;
-  c.compensate=0;mulClockObserveFitted(NULL,&raw,&a,&c,&p,rx,now,true,NULL);
-  mulClockDelay_t d={.epoch=corrected.epoch,.oneWayDtu=delay,.referenceSequence=i,.measuredMs=now,.maxAgeMs=1000,.valid=true};
-  memcpy(d.reference,mulDefaultNetwork.addresses[0],8);memcpy(d.follower,mulDefaultNetwork.addresses[1],8);
-  c.compensate=1;mulClockObserveFitted(NULL,&corrected,&b,&c,&p,rx,now,true,&d);
- }
- assert(a.ready&&b.ready&&raw.skewPpb>corrected.skewPpb&&abs(corrected.skewPpb-12000)<=1);
- assert(corrected.localRx==mulTimestampMask(800000+scale(79*1000*MS+1000+64*79,12000))); // Raw mapping origin retained.
- mulTestPacket_t p;packet(&p,80,100000+80*1000*MS);
- mulClockObserveFitted(NULL,&corrected,&b,&c,&p,mulTimestampMask(800000+scale(80*1000*MS+1000+64*80,12000)),90000,true,NULL);
- assert(!b.compensated&&!b.ready&&b.count==1); // Stale/missing provider never remains implicitly active.
-}
-static void transient(void) {
- mulClock_t clock;mulClockReset(&clock);mulClockFit_t fit;mulClockFitReset(&fit);mulClockFitConfig_t c;mulClockFitDefaults(&c);c.estimator=1;
- for(unsigned i=0;i<100;i++) {
-  int64_t t=(int64_t)i*1000*MS,rx=scale(t,10000)+(i>=50?scale((int64_t)(i-50)*1000*MS,100)-((int64_t)(i-50)*1000*MS):0);
-  mulTestPacket_t p;packet(&p,i,100000+t);mulClockObserveFitted(NULL,&clock,&fit,&c,&p,mulTimestampMask(900000+rx),10000+i*1000,true,NULL);
- }
- assert(fit.ready&&abs(clock.skewPpb-10100)<=1&&fit.rejected>=3&&fit.resets>=2);
- mulTestPacket_t p;packet(&p,1,1000);uint64_t epoch=clock.epoch;
- assert(mulClockObserveFitted(NULL,&clock,&fit,&c,&p,2000,120000,true,NULL)==mulClockIgnored);
- packet(&p,101,1000);assert(mulClockObserveFitted(NULL,&clock,&fit,&c,&p,2000,120000,true,NULL)==mulClockDiscontinuity);assert(clock.epoch!=epoch&&fit.count==1);
-}
-static void changing_rate_and_initial_outlier(void) {
- mulClock_t clock;mulClockReset(&clock);mulClockFit_t fit;mulClockFitReset(&fit);mulClockFitConfig_t c;mulClockFitDefaults(&c);c.estimator=1;
- unsigned fallback=0;
- for(unsigned i=0;i<150;i++) {
-  int64_t t=(int64_t)i*1000*MS;
-  // Instantaneous skew is15000+2*i ppb; integrated phase is15000*t + i^2 seconds*1ppb.
-  int64_t rx=scale(t,15000)+(int64_t)i*i*MS/1000000;
-  mulTestPacket_t p;packet(&p,i,100000+t);
-  mulClockObserveFitted(NULL,&clock,&fit,&c,&p,mulTimestampMask(900000+rx),10000+i*1000,true,NULL);
-  if(i>40&&fit.fallback==mulClockFitChangingRate){fallback++;assert(!fit.applied);assert(abs(clock.skewPpb-(15000+2*(int)i))<=6);}
- }
- assert(fallback>80&&fit.ready);
- mulClockReset(&clock);mulClockFitReset(&fit);
- for(unsigned i=0;i<40;i++) {
-  int64_t t=(int64_t)i*1000*MS;mulTestPacket_t p;packet(&p,i,100000+t);
-  mulClockObserveFitted(NULL,&clock,&fit,&c,&p,mulTimestampMask(900000+scale(t,-15000)+(i==2?20000:0)),10000+i*1000,true,NULL);
-  if(i>=12)assert(fit.ready&&abs(clock.skewPpb+15000)<=1);
- }
+static void scenario(unsigned method, unsigned mode) {
+  mulClock_t clock;
+  mulClockReset(&clock);
+  mulClockFit_t s;
+  mulClockFitReset(&s);
+  mulClockFitConfig_t c;
+  mulClockFitDefaults(&c);
+  c.estimator = method;
+  int64_t tx = MUL_TIMESTAMP_MASK - DT / 2, rx = tx - 100000, phase = 0;
+  unsigned now = UINT32_MAX - 2000, seq = 0, applied = 0;
+  for (unsigned i = 0; i < 500; i++) {
+    unsigned n = mode == 3 && i % 17 == 0 ? 2 : 1;
+    double skew = mode == 1 ? -35000 : 15000;
+    if (mode == 2)
+      skew += .2 * i;
+    if (mode == 4)
+      skew += sin(i / 30.) * 30;
+    if (mode == 5 && i > 250)
+      skew += 150;
+    int64_t step = n * DT;
+    tx += step;
+    phase += (int64_t)llround(step * skew / 1e9);
+    rx = tx - 100000 + phase;
+    int64_t noise = mode == 6 && i == 200 ? 3000 : 0;
+    now += n * 1000;
+    seq += n;
+    observation(&clock, &s, &c, seq, mulTimestampMask(tx),
+                mulTimestampMask(rx + noise), now);
+    if (i > 450) {
+      assert(clock.status == mulClockValid);
+      assert(abs(clock.skewPpb - (int)round(skew)) < 20);
+    }
+    if (method == 2) {
+      double x[3], p[3][3];
+      assert(mulClockFitPredict(&s, 0, x, p));
+      assert(isfinite(p[1][1]) && p[1][1] > 0);
+      applied += s.applied;
+    }
+  }
+  if (method == 2)
+    assert(applied > 450);
+  uint64_t epoch = clock.epoch;
+  now += 10000;
+  tx += 10 * DT;
+  rx += 10 * DT;
+  observation(&clock, &s, &c, seq + 10, mulTimestampMask(tx),
+              mulTimestampMask(rx), now);
+  assert(clock.epoch != epoch && clock.status != mulClockValid);
+  for (unsigned i = 1; i < 12; i++)
+    observation(&clock, &s, &c, seq + 10 + i, mulTimestampMask(tx + i * DT),
+                mulTimestampMask(rx + i * DT + i * DT * 15000 / 1000000000),
+                now + i * 1000);
+  assert(clock.status == mulClockValid);
+  if (method == 2) {
+    memset(s.covariance, 0, sizeof(s.covariance));
+    s.covariance[0][0] = 1024;
+    s.covariance[1][1] = 1e10;
+    s.covariance[2][2] = 1e12;
+    observation(&clock, &s, &c, seq + 22, mulTimestampMask(tx + 12 * DT),
+                mulTimestampMask(rx + 12 * DT + 12 * DT * 15000 / 1000000000),
+                now + 12000);
+    assert(!s.applied && s.fallback == mulClockFitUncertain &&
+           clock.status == mulClockValid);
+    s.covariance[1][1] = NAN;
+    tx += 13 * DT;
+    rx += 13 * DT + 13 * DT * 15000 / 1000000000;
+    observation(&clock, &s, &c, seq + 23, mulTimestampMask(tx),
+                mulTimestampMask(rx), now + 13000);
+    assert(!s.applied && s.fallback == mulClockFitNumerical &&
+           clock.status == mulClockValid);
+    // Corrupt Kalman covariance AND unavailable median: never manufacture
+    // validity.
+    mulClockReset(&clock);
+    mulClockFitReset(&s);
+    observation(&clock, &s, &c, 1, 1, 2, 1);
+    assert(!s.applied && clock.status != mulClockValid);
+    clock.epoch = 0;
+    for (unsigned j = 1; j < 8; j++)
+      observation(&clock, &s, &c, j + 1, 1 + j * DT, 2 + j * DT, 1 + j * 1000);
+    assert(clock.status != mulClockValid && !s.applied &&
+           s.fallback == mulClockFitNumerical);
+  }
 }
 int main(void) {
- const unsigned periods[]={100,500,1000,2000};
- for(unsigned i=0;i<4;i++) {
-  unsigned p=periods[i];stationary(p,15000,24);stationary(p,-45000,32);stationary(p,150000,8);
- }
- mobile();transient();changing_rate_and_initial_outlier();puts("Clock fit: centered bounded integers, long-run rollover/gaps, median fallback, outliers/transients, period variants and mobile propagation compensation passed");return 0;
+  for (unsigned method = 0; method <= 2; method += 2)
+    for (unsigned mode = 0; mode < 7; mode++)
+      scenario(method, mode);
+  mulClockFitConfig_t c;
+  mulClockFitDefaults(&c);
+  uint8_t b[12];
+  assert(mulClockFitConfigEncode(b, &c) && b[0] == 2);
+  c.estimator = 2;
+  assert(mulClockFitConfigEncode(b, &c));
+  assert(mulClockFitConfigDecode(b, &c) && c.estimator == 2);
+  b[0] = 1;
+  b[1] = 1;
+  b[2] = 24;
+  b[3] = 8;
+  assert(mulClockFitConfigDecode(b, &c) && c.estimator == 0 && c.window == 5);
+  b[0] = 2;
+  b[2] = b[3] = 5;
+  b[1] = 255;
+  assert(mulClockFitConfigDecode(b, &c) && c.estimator == 0);
+  b[11] = 1;
+  assert(!mulClockFitConfigDecode(b, &c));
+  printf(
+      "Median5/Kalman: constant/ramp/nonlinear/negative skew, variable "
+      "intervals/loss, wrap, outliers, step, PSD, outage/reacquisition, "
+      "fallback/unavailable and codec migration passed; state=%zu config=%zu\n",
+      sizeof(mulClockFit_t), sizeof(c));
 }
