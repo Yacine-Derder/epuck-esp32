@@ -27,7 +27,12 @@ except ModuleNotFoundError:
     from tools.uwb_clock import decode_clock
     from tools.uwb_ar import decode_ar
 
-NAMES={1:'summary',2:'range',3:'event',4:'observation',5:'peer',6:'hybrid_rx',7:'tdoa',8:'tdoa_vector',9:'multi_rx',10:'clock',11:'tdoa_vector',12:'multi_rx',13:'ar_range',14:'ar_quality'}
+try:
+    from uwb_replay import fragment as decode_replay
+except ModuleNotFoundError:
+    from tools.uwb_replay import fragment as decode_replay
+
+NAMES={15:'tdoa_replay_fragment',1:'summary',2:'range',3:'event',4:'observation',5:'peer',6:'hybrid_rx',7:'tdoa',8:'tdoa_vector',9:'multi_rx',10:'clock',11:'tdoa_vector',12:'multi_rx',13:'ar_range',14:'ar_quality'}
 
 def decode(line):
     if not ((line.startswith('UWB1 ') and len(line)==261) or (line.startswith(('UWB2 ','UWB3 ')) and len(line)==309)):
@@ -46,6 +51,8 @@ def decode(line):
              flags=data[9],remote_radio=data[10],quality=data[11],sequence=sequence,epoch=f'{epoch:016X}',exchange=f'{exchange:016X}',
              transaction=transaction,uptime_ms=uptime,raw_mm=raw,calibrated_mm=cal,
              raw_valid=bool(data[9]&1),calibration=bool(data[9]&2),calibrated_valid=bool(data[9]&4))
+    if data[3]==15:
+        return decode_replay(data,out)
     if data[3] in (13,14):
         return decode_ar(data,out)
     if data[3]==10:
@@ -153,6 +160,7 @@ async def collect(endpoint,output,stop=None, *, raw=False,health_seconds=30,moni
         except (OSError,ValueError,ConnectionError,asyncio.TimeoutError) as error:
             emit('disconnected',reason=str(error),connections=reconnects,corrupt=corrupt,missing=missing)
         finally:
+            if compact:compact.finish_replay()
             if writer:
                 writer.close()
                 try:await asyncio.wait_for(writer.wait_closed(),.2)

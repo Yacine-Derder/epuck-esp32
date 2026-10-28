@@ -6,8 +6,11 @@
 #include <time.h>
 int main(int argc,char **argv) {
  assert(argc==2);FILE *input=fopen(argv[1],"r");assert(input);
- char records[128][MUL_TLM_LINE+1];unsigned recordCount=0;
- while(recordCount<128&&fgets(records[recordCount],sizeof(records[0]),input))recordCount++;
+#ifndef BRIDGE_E2E_RECORDS
+#define BRIDGE_E2E_RECORDS 128
+#endif
+ char records[BRIDGE_E2E_RECORDS][MUL_TLM_LINE+1];unsigned recordCount=0;
+ while(recordCount<BRIDGE_E2E_RECORDS&&fgets(records[recordCount],sizeof(records[0]),input))recordCount++;
  assert(recordCount>0&&feof(input));
  fclose(input);
  listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);
@@ -18,7 +21,7 @@ int main(int argc,char **argv) {
  printf("%u\n",ntohs(address.sin_port));fflush(stdout);
  mock_connected=wifi_bit=1;mock_read_tick=1;mock_uart_write=128;
  unsigned sent=0,completed=0;
- for(unsigned step=0;step<2000&&completed<2;step++) {
+ for(unsigned step=0;step<BRIDGE_E2E_RECORDS*22+200&&completed<2;step++) {
    mock_time+=10;owner_once();
    if(client>=0&&!ready) {
      char response[64];snprintf(response,sizeof(response),"SESSION %s READY",session);

@@ -13,6 +13,11 @@ import shutil
 import threading
 import uuid
 
+try:
+    from uwb_replay import Reassembly
+except ModuleNotFoundError:
+    from tools.uwb_replay import Reassembly
+
 DEFAULT_LOG_DIR = Path.home() / 'Documents' / 'uwb_logs'
 OLD_LOG_DIR = Path.home() / 'uwb_logs'
 
@@ -28,6 +33,7 @@ class CompactLog:
         self.output, self.health_seconds = output, health_seconds
         self.capture = uuid.uuid4().hex[:16]
         self.sessions, self.rosters, self.health_at = {}, {}, {}
+        self.replay = Reassembly()
         self.counter = 0
         self.bridge_counts = None
         self.write(dict(type='capture', schema=1, capture=self.capture, endpoint=endpoint,
@@ -54,6 +60,10 @@ class CompactLog:
                             epoch=row['epoch'], mode=row['mode'], role=row['role']))
         return self.sessions[key]
 
+    def finish_replay(self):
+        for row in self.replay.finish():
+            self.write(row)
+
     def accept(self, row):
         kind = row['kind']
         t = row['host_received_utc']
@@ -63,6 +73,7 @@ class CompactLog:
             if kind == 'disconnected':
                 fields['reason'] = row['reason']
             self.write(fields)
+            if kind == 'disconnected':self.finish_replay()
             return
         if kind == 'corrupt':
             self.write(dict(type='error', t=t, capture=self.capture, reason=row['reason'], corrupt=row['count']))
@@ -92,7 +103,7 @@ class CompactLog:
             return
         event = row['type']
         # Raw packets/peer tables are deliberately omitted from routine experiments.
-        if event not in ('tdoa', 'tdoa_vector', 'clock', 'range', 'summary', 'ar_range', 'ar_quality') and not row.get('missing'):
+        if event not in ('tdoa_replay_fragment', 'tdoa', 'tdoa_vector', 'clock', 'range', 'summary', 'ar_range', 'ar_quality') and not row.get('missing'):
             return
         sid = self.session(row)
         base = dict(t=t, s=sid)
@@ -101,7 +112,13 @@ class CompactLog:
         if row.get('sequence_status') in ('duplicate', 'old'):
             self.write(dict(base, type='ordering', state=row['sequence_status'], seq=row['sequence']))
             return
-        if event == 'clock':
+        if event == 'tdoa_replay_fragment':
+            try:
+                for result in self.replay.accept(row, sid):
+                    self.write(dict(result, t=t))
+            except ValueError as error:
+                self.write(dict(base, type='error', reason=str(error), diagnostic_id=row['diagnostic_id']))
+        elif event == 'clock':
             fields = ('reference_node', 'reference_sequence', 'reference_tx_dtu', 'local_rx_dtu',
                       'applied_ppb', 'fitted_ppb', 'residual_rms_dtu', 'rejected_samples', 'fit_sigma_ppb',
                       'mapping_age_ms', 'clock_estimator', 'clock_window', 'observation_count', 'inlier_count',
