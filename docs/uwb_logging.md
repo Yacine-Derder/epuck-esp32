@@ -473,3 +473,250 @@ raw frames and source provenance through ESP UART/priority/TCP reconnect/debug a
 compact JSON. `--planned` also covers external relations acrossN2/4/8. These are
 software simulations; no physical link or Pi/ROS/MCS bridge is involved. See the
 LPS pose codec/host generator and command docs for source time/age/frame contracts.
+
+## Replay-complete TDoA diagnostics
+
+This extension targets the existing multi/generated-plan receiver on STM32.
+It changes diagnostic telemetry only; UWB frames, active estimators, calibration,
+RF timing, stored configuration, Wi-Fi connection policy and control commands are
+unchanged. No LPS firmware update is required for this feature. The capture source
+is the STM32 receiver, not a direct PC serial connection to it.
+
+### Path and bounded storage
+
+STM32 takes native40 RX markers and decoded observations in the existing radio
+owner. A snapshot is frozen before cycle rollover and completed with the original
+vector result. Existing production downlink intermediates are copied through a
+trace-only link wrapper; they are not calculated by a replacement firmware path.
+Serialization runs after radio processing, with no extra radio SPI reads or heap
+allocation. The fixed 152-byte CRC16 UWB3 envelope becomes a 309-character hex line
+on the existing 115200-baud UART3. STM32's USB and Wi-Fi queues each hold four lines;
+the UART link has one pending line. Existing one-second expiry/backpressure applies.
+
+The ESP owner validates type 15 and transparently forwards it as optional telemetry
+through its existing eight-slot, 320-byte line queue and TCP port 3333. It retains
+control priority, TTL, disconnect purge and UWBSTAT loss/error reporting. The PC's
+existing `uwb_collect.py` validates CRC, shared telemetry sequence and epoch, and
+reassembles snapshots while retaining existing session/gap/health records. Compact
+output flushes each JSONL row. Unknown diagnostic schemas become explicit errors;
+older UWB1/2/3 measurement records remain supported. Raw/debug mode retains fragments
+rather than projecting a completed snapshot; use default compact mode for validation.
+
+A pair snapshot is 384 bytes in four fragments. At one pair/second this adds
+1240 B/s with LF, or 1244 B/s with CRLF: at most 10.8% of UART payload capacity,
+plus existing telemetry. STM32 holds four snapshots and seven prepare buffers;
+new snapshots are dropped when full. Diagnostic IDs advance even for drops, and
+subsequent fragment headers expose the cumulative diagnostic drop count. Each
+fragment requires two free normal queue slots, cannot evict essential records,
+and is emitted at most once per owner-loop iteration. ESP slots are unchanged.
+PC reassembly holds at most eight partial snapshots (3072 payload bytes plus Python
+metadata), and reports eviction, integrity failure or unfinished connection data.
+Large rosters/high cycle rates may lose diagnostics; this is not a lossless N8
+streaming guarantee. Completely silent/disconnected tails cannot report a future
+counter; capture boundaries are explicitly part of the completeness limit.
+
+### Type-15 schema 1
+
+All multibyte integers are little endian; native timestamps use five bytes, modulo
+2^40, with nominal DTU frequency 63897600000 Hz. Host UTC is reception time only.
+Every fragment retains the common node/radio/mode/role, boot/radio epoch, telemetry
+sequence, cycle and emission uptime. Type 15 is diagnostic evidence, not a radio
+packet or a separate measurement. The wire header is:
+
+| Bytes | Meaning |
+|---|---|
+| 0–23 | Existing MT/version3/type15/device/role header, schema=byte11, sequence, epoch |
+| 24–27 / 28–31 | Diagnostic snapshot ID / cumulative snapshot drops (uint32) |
+| 32–39 | Cycle / emission uptime (uint32) |
+| 40 / 41 / 42–43 | Fragment index / count4 / blob size384 |
+| 44–47 | FNV-1a32 digest of complete blob; association/integrity, not authentication |
+| 48 / 49 | Payload length100,100,100,84 / follower slot1..7 |
+| 50–149 | Fragment payload with zero padding |
+| 150–151 | Existing CRC16-CCITT, initial0xffff |
+
+Association uses device/radio/epoch/diagnostic ID, with cycle/slot/digest agreement
+on every fragment. Per-fragment sequence is retained in compact `fragment_sequences`.
+Every complete compact row contains the original `blob` hex, its digest, schema,
+identity and decoded fields. This is the authoritative lossless baseline input.
+The blob layout is:
+
+| Offset | Contents |
+|---|---|
+| 0–15 | Schema, planned/stationary flags, pair slot, cycle, seen mask/count, vector source-version flag, reserved0, cycle-start uptime |
+| 16–79 | Full local 64-byte generated plan, or 32-byte schedule plus32 zero bytes |
+| 80–177 | Reference and follower observations, 49 bytes each |
+| 178–219 | Complete decoded on-air follower relation, 42 bytes |
+| 220–259 | Applied receiver mapping (origins, epoch, sequence, uptime, signed ppb, status, baseline/count/index, period and sample count) |
+| 260–271 | Existing 12-byte clock configuration codec |
+| 272–309 | Fit epoch/rate/RMS/uncertainty/counters, count/inliers/readiness/applied/fallback/compensation |
+| 310–326 | Two capture ages, existing RX status words, evaluation uptime and admission-mismatch flag |
+| 327–367 | Five signed64 production intermediates and an explicit captured flag |
+| 368–380 | Original signed32 DTU/mm, status, clock-valid, rate-state, rejection reason, provenance |
+| 381–383 | Reserved0 |
+
+Each observation preserves full source and receiver clock identities, sequence,
+TX, raw RX, corrected RX, generation, acceptance uptime, power estimate/delta/status/
+table, validity, remote-epoch-known and sequence-known flags. TX belongs to that
+ALR's native hardware clock; both RX markers belong to the RLR hardware clock.
+Stale cached observations may remain in absent slots: only `received_this_cycle`
+and the seen mask identify this cycle's actual reception. Missing observations
+are not encoded as fabricated timestamps.
+
+The complete relation includes reference/follower origins, mapping epoch, signed
+skew ppb (follower relative to reference), reference and TWR sequences, origin/
+delay/remaining/max ages, delay DTU, availability, power-corrected TWR flag, relation
+version, delay state, external-pose flag and advertised period. Its two origins
+have explicit reference/follower clock domains. `received_this_cycle` means it was
+decoded from this cycle's follower packet; absent followers do not supply a usable
+current relation. Provenance and validity are separate: an unavailable relation's
+flags are not evidence of an applied correction.
+
+Captured intermediates are TX separation in the reference domain, raw and corrected
+arrival separations in that domain, raw TDoA and corrected TDoA. They are the actual
+production return values. An early unavailable result may leave intermediate fields
+zero; the downlink/result status controls interpretation. Admission failures that
+never reach downlink have `intermediates_captured=false`. Converted follower TX is
+reference TX plus TX separation modulo2^40 when the relation is valid. Raw RLR arrival
+separation is the signed native40 difference of the two captured raw RX markers.
+The validator reports both reconstructed separations using production C.
+
+`calculation_revision` binds schema1 to canonical core
+`506913dc676d0a3c0d43c48977ef11be2085aa34` and the supported STM32 6000 ms propagation-age
+build. The validator verifies the vendor manifest before compilation. It does not
+trust hash equality as full schedule proof: the full local plan/schedule bytes are
+retained, including roster, period, spacing, timing budgets, priorities and rates.
+This captures the receiver's configuration; it cannot prove an ALR's undisclosed
+complete stored plan from the on-air fingerprint. Preserve the operator's full
+read-only plan dumps and firmware revisions for all nodes as experiment metadata.
+
+### Baseline replay and intervention scope
+
+`validate_tdoa_replay.py` reads compact JSONL, checks domains/configuration/integrity,
+reconstructs the exact evaluation state, and compiles a temporary host oracle from
+the matching STM32 checkout. The oracle uses the production receiver admission/
+evaluation code, relation conversion, modular timestamps, integer rounding and
+DTU-to-mm calculation. It compares DTU, mm, status/reason, clock validity, rate state,
+provenance and captured intermediates; separately recorded vectors are also checked.
+No floating-point approximation or alternate production estimator is introduced.
+Missing-reference/follower/rate/relation cases remain replayable invalid results.
+There is no replay snapshot for a completely unobserved cycle: the receiver itself
+never starts that cycle. Inspect cycle/time gaps as UWB absence, not transport proof.
+
+`passed` means received snapshots replay with no unexplained mismatch, malformed
+record or partial assembly. `replay_complete` additionally requires coverage of all
+captured vector pairs and no observed diagnostic ID gaps/drops or transport loss.
+Inspect both fields and the per-cycle mismatch/missing/incomplete lists; a successful
+arithmetic replay alone does not certify a complete experiment. Initial capture and
+final shutdown can cut through fragments; these are reported, not silently repaired.
+Counter decreases/reset and session boundaries remain visible in normal records.
+
+Reference TX/RLR RX, acceptance time, generation, mapping resets and exact applied
+clock/fit context support future receiver-only estimator comparisons. The intervention
+holds the actually received on-air follower relation and propagation metadata fixed.
+Changing the ALR estimator on air also changes that relation; its full historical fit
+inputs are not captured here. That larger intervention cannot be inferred from this
+dataset. Existing clock fit windows are not serialized as internal arrays: baseline
+TDoA replay uses the exact applied mapping; shadow estimators must warm up on recorded
+observations and exclude missing transport intervals rather than inventing history.
+
+### Software verification and operator checkpoint
+
+Software-only commands (no serial/device/RF access):
+
+```sh
+cd ~/Documents/epuck-stm32
+bash tests/runtime_config/run.sh
+bash tests/esp_link/run.sh
+bash tests/uwb_policy/run.sh
+bash tests/epuck_console/run.sh
+bash ThirdParty/mul_core/tests/run.sh
+cd ~/Documents/epuck-esp32
+bash tests/run_host.sh
+python3 tools/verify_tdoa_replay.py
+```
+
+The last command generates actual STM radio/runtime/UART fixtures and runs them
+through the actual ESP owner and TCP loopback, disconnect/reconnect, existing compact
+collector and production C oracle. It accepts no physical endpoint. The 45-cycle
+fixture gives 45/45 exact DTU/mm/status matches, 43/43 available captured-intermediate
+comparisons, zero observed gaps/drops and `replay_complete=true`. Other tests cover
+malformed/unknown-version frames, fragment loss, integrity/association conflicts,
+bounded reassembly, unavailable inputs, wrap, signed rates/TDoA, propagation delay,
+queue pressure and unchanged vectors with instrumentation OFF versus ON.
+
+STM32 build/image and RAM/stack details are in
+`../epuck-stm32/docs/hybrid_uwb.md` (replay diagnostics). Both trace ON/OFF Release
+builds and reserved-configuration-sector checks pass. ESP32 build succeeds with
+854240-byte application binary in its 1048576-byte app partition, image sections
+854120 B, `.data + .bss` 53343 B; IDF reports DIRAM120874 B including executable RAM.
+The additive frame validator uses a bounded152-byte buffer and adds no persistent
+queue. Runtime whole-stack high-water, CPU latency and physical RF availability are
+not established by host tests. Existing unrelated compiler/SDK warnings remain.
+
+For the human operator only; none of these device operations was executed during
+implementation:
+
+1. Build STM32 using the exact `build/ReplayTelemetry` command in its guide, with
+   `-DMUL_TDOA_REPLAY=ON`. Build ESP32 using the existing installed SDK:
+
+   ```sh
+   cd ~/Documents/epuck-esp32
+   source ~/.espressif/tools/activate_idf_v6.1.sh
+   python3 "$IDF_PATH/tools/idf.py" build
+   ```
+
+2. Use the established ST-Link procedure, selecting the replay ELF and preserving
+   configuration sectors; use the existing identified ESP port, not a guessed port:
+
+   ```sh
+   cd ~/Documents/epuck-stm32
+   source ~/.espressif/tools/activate_idf_v6.1.sh
+   openocd -s "$OPENOCD_SCRIPTS" -f interface/stlink.cfg -f target/stm32f4x.cfg \
+     -c 'program build/ReplayTelemetry/EPuck_STM32.elf verify reset exit'
+   cd ~/Documents/epuck-esp32
+   python3 "$IDF_PATH/tools/idf.py" -p "$ESP32_PORT" flash
+   ```
+
+   `$ESP32_PORT` must be identified by the operator using the existing procedure in
+   `docs/disconnect_diagnostics.md`. Preserve the current plan, RF state, calibration,
+   Wi-Fi credentials and estimator. No ALR flashing or plan rewrite is needed here.
+   Confirm full plan fields on each node; fingerprint826414CC alone is insufficient.
+
+3. In the existing stationary campaign, confirm telemetry/Wi-Fi are already enabled
+   and the generated plan selected. Start the existing collector on the established
+   RLR endpoint; choose a new output directory to retain prior experiment files:
+
+   ```sh
+   cd ~/Documents/epuck-esp32
+   timeout --signal=INT 600s python3 tools/uwb_collect.py \
+     --robot 192.168.1.141:3333 --output ~/Documents/uwb_logs/replay-next --no-live
+   ```
+
+   Use `--metadata YOUR_EXISTING_METADATA.json` to retain ground truth, full plan
+   dumps and firmware/image identities. The stationary geometry is AA2 m, AR1 m
+   each, expected range difference0 mm; this is comparison truth, not calibration.
+
+4. Inspect the new file for `"type":"tdoa_replay"`, approximately one pair row per
+   observed cycle including invalid results. Check `diagnostic_dropped`,
+   `tdoa_replay_incomplete`, `gap`, `transport` and `error` records. Require zero
+   unexplained losses for estimator comparison; stop and inspect backpressure if
+   counters grow. Verify unchanged RF cadence, availability, radio error rates and
+   service/stack headroom before the full campaign. Match source/receiver domains,
+   schema and complete local configuration; do not infer them from host timestamps.
+
+5. After capture, set `RECORDING` to the exact new compact JSONL path printed by the
+   collector and run:
+
+   ```sh
+   python3 tools/validate_tdoa_replay.py "$RECORDING" --sanitize
+   # Optional detailed per-cycle production intermediates:
+   python3 tools/validate_tdoa_replay.py "$RECORDING" --details
+   ```
+
+   Require `passed=true`, all reconstructed outputs exactly matched, empty mismatch/
+   invalid/missing lists, and inspect `replay_complete` and transport/capture-boundary
+   losses. Archive the checkout/image identities with the capture. Legacy captures
+   without type15 remain readable but cannot acquire missing replay inputs afterward.
+
+Software status: **READY FOR HARDWARE VALIDATION**. Physical latency, stack watermark,
+UART margin and unchanged RF performance remain operator validation checks.
