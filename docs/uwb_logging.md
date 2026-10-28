@@ -644,7 +644,7 @@ cannot be reconstructed exactly. No TCP/collector bug can be inferred from a gap
 The 2026-10-28 physical smoke capture in
 `uwb_logs/replay-smoke-20261028T125627/20261028T115627597356Z-robot-0-compact.jsonl`
 contains120 exact baseline matches. Cycles68/69/70 were ancient queued snapshots;
-current cycles are283..402, with no cycle started for290 or353. The historical ID
+current cycles are283..402, with no completed cycle/diagnostic ID for290 or353. The historical ID
 jump70->284 accounts for213 skipped IDs; the diagnostic-drop counter stays223,
 so its observed capture delta is zero. Bridge counters stay at1 drop/0 corrupt/
 0 UART errors; `tx_dropped` stays1. There are115 real gap events/207 shared sequence
