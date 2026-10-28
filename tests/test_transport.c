@@ -213,7 +213,21 @@ static void ekf_transport_tests(void) {
  while(app_ekf_worker_step()){}
  puts("EKF default OFF, bounded worker saturation, control isolation, session purge and long local TCP input passed");
 }
+static void replay_diagnostics(void) {
+ char line[310];uint8_t b[152]={0x4d,0x54,3,15,141,255,2,5,2,0,1,1};
+ b[16]=1;b[41]=4;b[42]=128;b[43]=1;b[48]=100;b[49]=1;
+ const char *hex="0123456789ABCDEF";
+ for(unsigned test=0;test<4;test++) {
+  b[11]=test==1?99:1;b[41]=test==2?3:4;
+  uint16_t crc=mulTelemetryCrc(b,150);b[150]=crc;b[151]=crc>>8;
+  memcpy(line,"UWB3 ",5);for(unsigned i=0;i<152;i++){line[5+i*2]=hex[b[i]>>4];line[6+i*2]=hex[b[i]&15];}line[309]=0;
+  if(test==3)line[40]='?';
+  assert(tdoa_replay_wire(line)==(test>=2?-1:1));
+ }
+ puts("Replay extension: unchanged frame limit, schema forwarding, malformed parts and CRC validation passed");
+}
 int main(void) {
+ replay_diagnostics();
  /* Generic streaming commands and both telemetry versions pass through the
   * actual transport, preserving envelopes and per-session replies. */
  int stream_peer=attach("0123456789abcdef");

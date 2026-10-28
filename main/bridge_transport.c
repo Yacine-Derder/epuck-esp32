@@ -2,6 +2,7 @@
 #include "bridge_transport.h"
 #include "bridge_protocol.h"
 #include "mul_telemetry.h"
+#include "tdoa_replay_wire.h"
 #ifndef BRIDGE_HOST_TEST
 #include "freertos/task.h"
 #include "driver/uart.h"
@@ -152,6 +153,12 @@ static void uart_record(const char *line)
 {
   char expected[64];
   if(strncmp(line,"UWB1 ",5)==0||strncmp(line,"UWB2 ",5)==0||strncmp(line,"UWB3 ",5)==0) {
+    int replay=tdoa_replay_wire(line);
+    if(replay){
+      if(replay<0){telemetry_corrupt++;return;}
+      if(client<0||!ready){telemetry_drops++;return;}
+      queue_telemetry(line,0);return;
+    }
     mulTelemetry_t record;
     if(!mulTelemetryDecode(line,&record)){telemetry_corrupt++;return;}
     if(client<0||!ready){telemetry_drops++;return;}
