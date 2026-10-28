@@ -148,6 +148,15 @@ class Reassembly:
         key = (row['node'], row['radio'], row['epoch'], row['diagnostic_id'])
         rows = []
         if key not in self.pending:
+            # The STM producer serializes one blob at a time. Once a newer ID
+            # arrives on this ordered stream, an older partial cannot complete.
+            for old_key, old in list(self.pending.items()):
+                delta = (key[-1]-old_key[-1]) & 0xffffffff
+                if old_key[:3] == key[:3] and 0 < delta < 0x80000000:
+                    del self.pending[old_key]
+                    rows.append(dict(type='tdoa_replay_incomplete', s=old['s'], diagnostic_id=old_key[-1],
+                                     cycle=old['cycle'], pair_slot=old['slot'], received_parts=sorted(old['parts']),
+                                     reason='new_snapshot', fragment_sequences=list(old['sequences'].values())))
             if len(self.pending) >= 8:
                 old_key, old = self.pending.popitem(last=False)
                 rows.append(dict(type='tdoa_replay_incomplete', s=old['s'], diagnostic_id=old_key[-1],

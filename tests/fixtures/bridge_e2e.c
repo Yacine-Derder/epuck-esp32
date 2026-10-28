@@ -35,7 +35,10 @@ int main(int argc,char **argv) {
      assert(!telemetry_out.count&&!tcp_out.count);
      if(sent==recordCount){disconnect_client("test_reconnect",0);completed++;}
    }
-   const struct timespec pause={.tv_nsec=10000000};nanosleep(&pause,NULL);
+#ifndef BRIDGE_E2E_STEP_NS
+#define BRIDGE_E2E_STEP_NS 10000000
+#endif
+   const struct timespec pause={.tv_nsec=BRIDGE_E2E_STEP_NS};nanosleep(&pause,NULL);
  }
  if(client>=0)disconnect_client("test_cleanup",0);
  close(listener);return completed==2?0:1;

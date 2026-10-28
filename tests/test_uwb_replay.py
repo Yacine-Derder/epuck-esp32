@@ -89,7 +89,7 @@ class Replay(unittest.TestCase):
         changed=dict(r,digest='00000000')
         with self.assertRaisesRegex(ValueError,'association'):assembly.accept(changed,'test')
         assembly=Reassembly();losses=[]
-        for i in range(10):losses += assembly.accept(dict(r,diagnostic_id=i),'test')
+        for i in range(10):losses += assembly.accept(dict(r,node=i,diagnostic_id=i),'test')
         self.assertEqual(len(assembly.pending),8)
         self.assertEqual(len(losses),2)
         self.assertEqual(len(assembly.finish()),8)
@@ -97,6 +97,17 @@ class Replay(unittest.TestCase):
         for line in self.fragments[:3]:assembly.accept(decode(line),'test')
         final=decode(self.fragments[3]);final['payload']=f'{int(final["payload"][:2],16)^1:02X}'+final['payload'][2:]
         with self.assertRaisesRegex(ValueError,'integrity'):assembly.accept(final,'test')
+
+    def test_initial_partial_is_reported_when_next_snapshot_arrives(self):
+        assembly=Reassembly()
+        for line in self.fragments[1:4]:
+            self.assertEqual(assembly.accept(decode(line),'test'),[])
+        rows=assembly.accept(decode(self.fragments[4]),'test')
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['received_parts'],[1,2,3])
+        self.assertEqual(rows[0]['reason'],'new_snapshot')
+        self.assertEqual(rows[0]['diagnostic_id'],0)
+        self.assertEqual(len(assembly.finish()),1) # New partial still gets a real tail report.
 
     def test_domains_and_tampering(self):
         rows=list(map(json.loads,self.project(self.fragments[:4]).splitlines()))
@@ -106,3 +117,27 @@ class Replay(unittest.TestCase):
         row['expected']['tdoa_dtu']+=1
         path=self.path/'tampered.jsonl';path.write_text(json.dumps(row)+'\n')
         self.assertTrue(validate(path,STM)['invalid_records'])
+
+class ReplayAccounting(unittest.TestCase):
+    def test_boot_baselines_and_backlog_are_not_capture_losses(self):
+        from uwb_replay_audit import audit
+        rows=[(dict(s='one',cycle=c,diagnostic_id=c,diagnostic_dropped=223,cycle_start_ms=t,cycle_ms=1000),b'')
+              for c,t in ((68,174994),(69,175994),(70,176994),(284,389991),(285,390991))]
+        vectors={('one',c):dict(cycle=c,u_ms=388991+(c-283)*1000) for c in (283,284,285)}
+        _, result=audit(rows,vectors,[dict(type='transport',bridge_dropped=1,corrupt=0,uart_errors=0)],[])
+        self.assertEqual(result['diagnostic_dropped'],0)
+        self.assertEqual(result['diagnostic_dropped_boot_last'],223)
+        self.assertEqual(result['diagnostic_id_gaps'],0)
+        self.assertEqual(result['diagnostic_id_gaps_including_backlog'],213)
+        self.assertEqual(len(result['historical_replay_records']),3)
+        self.assertEqual(result['current_missing_vector_records'],0)
+        self.assertEqual(result['bridge_counter_samples']['observed_increments']['bridge_dropped'],0)
+
+    def test_counter_wrap_reset_and_real_interior_loss(self):
+        from uwb_replay_audit import increments,audit
+        self.assertEqual(increments([dict(n=0xfffffffe),dict(n=1)],['n'])['observed_increments']['n'],3)
+        self.assertEqual(increments([dict(n=100),dict(n=2)],['n'])['observed_increments']['n'],2)
+        rows=[(dict(s='one',cycle=c,diagnostic_id=i,diagnostic_dropped=d,cycle_start_ms=c*1000,cycle_ms=1000),b'') for c,i,d in ((1,1,10),(2,3,11))]
+        _, result=audit(rows,{},[],[])
+        self.assertEqual(result['diagnostic_dropped'],1)
+        self.assertEqual(result['diagnostic_id_gaps'],1)

@@ -505,12 +505,17 @@ rather than projecting a completed snapshot; use default compact mode for valida
 A pair snapshot is 384 bytes in four fragments. At one pair/second this adds
 1240 B/s with LF, or 1244 B/s with CRLF: at most 10.8% of UART payload capacity,
 plus existing telemetry. STM32 holds four snapshots and seven prepare buffers;
-new snapshots are dropped when full. Diagnostic IDs advance even for drops, and
+new snapshots are dropped when full. Queued snapshots expire after one second
+(the downstream UART/FIFO freshness bound), before admission and emission; this
+prevents a disconnected capture from draining ancient data ahead of current cycles.
+Diagnostic IDs advance even for drops, and
 subsequent fragment headers expose the cumulative diagnostic drop count. Each
 fragment requires two free normal queue slots, cannot evict essential records,
 and is emitted at most once per owner-loop iteration. ESP slots are unchanged.
 PC reassembly holds at most eight partial snapshots (3072 payload bytes plus Python
 metadata), and reports eviction, integrity failure or unfinished connection data.
+A newer snapshot ID closes an older partial on the same ordered device stream, so
+an initial partial is reported immediately rather than mislabeled at shutdown.
 Large rosters/high cycle rates may lose diagnostics; this is not a lossless N8
 streaming guarantee. Completely silent/disconnected tails cannot report a future
 counter; capture boundaries are explicitly part of the completeness limit.
@@ -602,13 +607,57 @@ Missing-reference/follower/rate/relation cases remain replayable invalid results
 There is no replay snapshot for a completely unobserved cycle: the receiver itself
 never starts that cycle. Inspect cycle/time gaps as UWB absence, not transport proof.
 
-`passed` means received snapshots replay with no unexplained mismatch, malformed
-record or partial assembly. `replay_complete` additionally requires coverage of all
-captured vector pairs and no observed diagnostic ID gaps/drops or transport loss.
-Inspect both fields and the per-cycle mismatch/missing/incomplete lists; a successful
-arithmetic replay alone does not certify a complete experiment. Initial capture and
-final shutdown can cut through fragments; these are reported, not silently repaired.
-Counter decreases/reset and session boundaries remain visible in normal records.
+`baseline_passed` describes exact arithmetic/status replay. `passed` additionally
+requires no incomplete assembly; `replay_complete` requires all captured vector
+pairs, current replay/vector association, contiguous current diagnostic IDs and
+zero observed diagnostic-drop increments. `transport_complete` separately describes
+all transport traffic, including redundant optional raw packets. A dataset may have
+complete baseline replay inputs despite optional raw-trace losses. These losses
+remain in `transport_missing`; the validator never reclassifies them as filtering.
+
+Loss scopes matter:
+
+| Counter | Scope |
+|---|---|
+| Diagnostic ID and wire diagnostic drops | Boot-cumulative; IDs advance for dropped snapshots; configure/reset purges add to drops |
+| STM32 health `dropped` | USB plus Wi-Fi queue drops and encode failures, cumulative since runtime diagnostic reset; not a Wi-Fi-only loss count |
+| STM32 `tx_dropped` | UART pending-slot drops since boot/diagnostic reset |
+| ESP `bridge_dropped`, corrupt, UART errors | ESP boot-cumulative, including disconnected purges/discards |
+| `transport_reports` | Capture-local count of gap rows plus counter-report rows; not a lost-message count |
+| `transport_missing` | Capture-local missing shared sequence numbers, detected before compact filtering |
+| Validator `diagnostic_dropped` | Observed delta from the first captured counter sample; first value is a baseline |
+| `diagnostic_dropped_boot_last`, `diagnostic_counter_samples` | Cumulative last samples and per-session baseline/last/delta; startup history is explicit |
+| `diagnostic_id_gaps` | Current measurement window; historical queued blobs are listed separately |
+
+The first counter observation cannot assign losses before that observation to this
+capture. Counter wrap/reset is handled explicitly. Full snapshots whose acquisition
+uptime is more than two periods before the first captured vector are reported as
+historical backlog; every such snapshot is still mathematically replayed. This does
+not discard invalid calculations or remove a current missing pair. Missing initial/
+final pairs are annotated as possible boundaries, not silently certified complete.
+
+Compact filtering omits native raw rows only AFTER shared-sequence accounting, so it
+does not create sequence gaps. New gap rows retain the exact missing sequence range.
+Old compact logs lack these ranges and discarded payloads: their lost message types
+cannot be reconstructed exactly. No TCP/collector bug can be inferred from a gap alone.
+
+The 2026-10-28 physical smoke capture in
+`uwb_logs/replay-smoke-20261028T125627/20261028T115627597356Z-robot-0-compact.jsonl`
+contains120 exact baseline matches. Cycles68/69/70 were ancient queued snapshots;
+current cycles are283..402, with no cycle started for290 or353. The historical ID
+jump70->284 accounts for213 skipped IDs; the diagnostic-drop counter stays223,
+so its observed capture delta is zero. Bridge counters stay at1 drop/0 corrupt/
+0 UART errors; `tx_dropped` stays1. There are115 real gap events/207 shared sequence
+numbers missing. The original file cannot identify those lost payloads exactly.
+Paced host reproduction isolates pre-bridge optional raw AA FIFO shedding (with the
+same losses when replay is disabled); it is not a compact-filtering artifact.
+
+Cycle283 has a vector but no snapshot; the full ancient FIFO explains the startup
+admission failure. It is at the capture boundary, not proof of ongoing replay loss.
+The partial cycle67 contains parts1/2/3 and was already incomplete at connection
+opening; `connection_end` was only the delayed flush time. There is no incomplete
+final current snapshot. The physical file still fails strict completeness after
+corrected accounting; it is never rewritten or retrospectively repaired.
 
 Reference TX/RLR RX, acceptance time, generation, mapping resets and exact applied
 clock/fit context support future receiver-only estimator comparisons. The intervention
@@ -633,6 +682,7 @@ bash ThirdParty/mul_core/tests/run.sh
 cd ~/Documents/epuck-esp32
 bash tests/run_host.sh
 python3 tools/verify_tdoa_replay.py
+python3 tools/verify_tdoa_replay.py --paced
 ```
 
 The last command generates actual STM radio/runtime/UART fixtures and runs them
@@ -643,6 +693,19 @@ comparisons, zero observed gaps/drops and `replay_complete=true`. Other tests co
 malformed/unknown-version frames, fragment loss, integrity/association conflicts,
 bounded reassembly, unavailable inputs, wrap, signed rates/TDoA, propagation delay,
 queue pressure and unchanged vectors with instrumentation OFF versus ON.
+
+The paced mode simulates200 seconds with60 seconds disconnected,27 ms UART frames,
+AA bursts and real STM queues, then the real ESP owner/TCP reconnect/collector. It
+checks the complete boundary-cut file fails strict completeness and its explicitly
+selected synthetic interior has140/140 exact pairs, zero current diagnostic ID gaps/
+drop increments, and complete replay despite254 optional/auxiliary sequence losses.
+The producer identifies252 raw type12 losses plus one summary and one quality row.
+At the recorded86ms status-report phase it instead identifies129 raw and127 quality
+losses, with identical results when replay is OFF. The fixture uses the exact full
+local plan fields (revision23, fingerprint826414CC), not merely hash equality.
+The disabled replay fixture has identical shedding: no FIFO enlargement, UART-rate
+change or speculative prioritization is applied. UART average bandwidth is below
+capacity; short AA bursts exceed the four-line optional FIFO's instantaneous budget.
 
 STM32 build/image and RAM/stack details are in
 `../epuck-stm32/docs/hybrid_uwb.md` (replay diagnostics). Both trace ON/OFF Release
@@ -714,8 +777,8 @@ implementation:
    ```
 
    Require `passed=true`, all reconstructed outputs exactly matched, empty mismatch/
-   invalid/missing lists, and inspect `replay_complete` and transport/capture-boundary
-   losses. Archive the checkout/image identities with the capture. Legacy captures
+   invalid/missing lists, and inspect `replay_complete`, `transport_complete`, counter deltas and capture-boundary
+   losses. Optional raw gaps alone do not invalidate complete snapshot inputs. Archive the checkout/image identities with the capture. Legacy captures
    without type15 remain readable but cannot acquire missing replay inputs afterward.
 
 Software status: **READY FOR HARDWARE VALIDATION**. Physical latency, stack watermark,

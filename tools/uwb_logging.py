@@ -108,7 +108,9 @@ class CompactLog:
         sid = self.session(row)
         base = dict(t=t, s=sid)
         if row.get('missing'):
-            self.write(dict(base, type='gap', missing=row['missing'], total=row['missing_total']))
+            self.write(dict(base, type='gap', missing=row['missing'], total=row['missing_total'],
+                            first_sequence=(row['sequence']-row['missing']) & 0xffffffff,
+                            last_sequence=(row['sequence']-1) & 0xffffffff))
         if row.get('sequence_status') in ('duplicate', 'old'):
             self.write(dict(base, type='ordering', state=row['sequence_status'], seq=row['sequence']))
             return

@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 from uwb_replay import snapshot, digest
+from uwb_replay_audit import audit
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -79,22 +80,23 @@ def validate(path, stm32, sanitize=False):
                 value = None
             if follower.get(vector_key) != value:
                 mismatch.append(dict(cycle=row['cycle'], field=key, expected=value, vector=follower.get(vector_key)))
-    # Diagnostic drops are cumulative; sum maxima per capture session, not each fragment.
-    dropped = {}
-    ids = {}
-    id_gaps = 0
-    for row, _ in records:
-        dropped[row['s']] = max(dropped.get(row['s'], 0), row['diagnostic_dropped'])
-        old = ids.get(row['s'])
-        if old is not None:
-            delta = (row['diagnostic_id'] - old) & 0xffffffff
-            if 1 < delta < 0x80000000:
-                id_gaps += delta - 1
-        ids[row['s']] = row['diagnostic_id']
+    current_records, accounting = audit(records, vectors, losses, incomplete)
+    diagnostic_dropped = accounting['diagnostic_dropped']
+    id_gaps = accounting['diagnostic_id_gaps']
+    transport_missing = sum(r.get('missing', 0) for r in losses)
+    bridge_changes = accounting['bridge_counter_samples']['observed_increments']
+    baseline_passed = bool(records) and not invalid and not mismatch
+    transport_complete = not transport_missing and not any(bridge_changes.values()) and not invalid
     captured_pairs = {(r['s'], r['cycle'], r['follower_node']) for r, _ in records}
     missing_fields = [dict(s=sid, cycle=cycle, follower_node=f['follower_node'], missing='tdoa_replay')
                       for (sid, cycle), vector in vectors.items() for f in vector['followers']
                       if (sid, cycle, f['follower_node']) not in captured_pairs]
+    first_last = {}
+    for (sid, cycle) in vectors:
+        first_last.setdefault(sid, [cycle, cycle])[1] = cycle
+    for missing in missing_fields:
+        first, last = first_last[missing['s']]
+        missing['boundary_assessment'] = 'initial_boundary_possible' if missing['cycle']==first else 'final_boundary_possible' if missing['cycle']==last else 'interior_or_unresolved'
     total = len({(r['s'], r['cycle']) for r, _ in records} | set(vectors))
     return dict(total_cycles=total, reconstructible_cycles=len({(r['s'], r['cycle']) for r, _ in records}),
                 reconstructible_pairs=len(records), exact_dtu_matches=sum(r.get('dtu_match', False) for r in outcomes),
@@ -104,8 +106,10 @@ def validate(path, stm32, sanitize=False):
                 vector_comparisons=comparisons, missing_vector_records=missing_vectors,
                 missing_fields=missing_fields, invalid_records=invalid, incomplete_snapshots=incomplete, transport_reports=len(losses),
                 transport_missing=sum(r.get('missing', 0) for r in losses),
-                diagnostic_dropped=sum(dropped.values()), diagnostic_id_gaps=id_gaps,
-                mismatches=mismatch, replay_complete=bool(records) and not missing_fields and not incomplete and not invalid and not mismatch and not id_gaps and not sum(dropped.values()) and not any(r.get('missing', 0) or r.get('bridge_dropped', 0) or r.get('uart_errors', 0) for r in losses), passed=bool(records) and not invalid and not incomplete and not mismatch,
+                **accounting,
+                mismatches=mismatch, baseline_passed=baseline_passed, transport_complete=transport_complete,
+                replay_complete=baseline_passed and not missing_fields and not incomplete and not id_gaps and not diagnostic_dropped and not accounting['current_missing_vector_records'],
+                passed=baseline_passed and not incomplete,
                 scope='exact logged receiver baseline; received follower relation fixed',
                 production_source=str(Path(stm32).resolve()),
                 results=outcomes)
