@@ -13,6 +13,9 @@ enum {
   mulClockFitUncertain = 2,
   mulClockFitNumerical = 3
 };
+enum {mulClockResetNone, mulClockResetStartup, mulClockResetDiscontinuity,
+      mulClockResetEpoch, mulClockResetCompensation, mulClockResetInterval,
+      mulClockResetNumerical};
 typedef struct {
   uint16_t periodMs, gateDtu;
   uint8_t estimator, window, minSamples, compensate;
@@ -27,7 +30,7 @@ typedef struct {
   int32_t skewPpb;
   uint32_t rmsDtu, uncertaintyPpb, rejected, accepted, resets;
   uint8_t count, inliers, compensated, ready, applied,
-      fallback;
+      fallback, resetReason;
 } mulClockFit_t;
 void mulClockFitDefaults(mulClockFitConfig_t *c);
 bool mulClockFitConfigValid(const mulClockFitConfig_t *c);

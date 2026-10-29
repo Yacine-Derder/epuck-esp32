@@ -33,9 +33,11 @@ cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-p
 cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
  -I. tests/test_multi_telemetry.c mul_telemetry.c -o "$work/multi_telemetry"
 "$work/multi_telemetry"
-cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
- -I. tests/test_clock_fit.c mul_clock_fit.c mul_clock.c mul_common.c -lm -o "$work/clock_fit"
+for age in 1000 6000; do
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie -DMUL_PROP_MAX_AGE_MS=$age \
+ -I. tests/test_clock_fit.c mul_clock_fit.c mul_clock.c mul_relation.c mul_common.c -lm -o "$work/clock_fit"
 "$work/clock_fit"
+done
 cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie -DMUL_PROP_MAX_AGE_MS=6000 \
  -I. tests/test_timing_profile.c mul_telemetry.c mul_clock_fit.c mul_multi_receiver.c mul_plan_protocol.c mul_ranging_plan.c mul_multi_protocol.c mul_schedule.c mul_relation.c mul_legacy_twr.c mul_clock.c mul_common.c mul_observation.c mul_downlink.c mul_localization.c -lm -o "$work/timing_profile"
 "$work/timing_profile"

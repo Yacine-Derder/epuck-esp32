@@ -82,7 +82,7 @@ bool mulClockFitPredict(const mulClockFit_t *s, double d, double x[3],
   return predict(s, d, x, p, 2);
 }
 static SHARED_HELPER void seed(mulClockFit_t *s, uint64_t epoch, uint64_t tx,
-                               uint64_t rx, bool corrected) {
+                               uint64_t rx, bool corrected, uint8_t reason) {
   uint32_t a = s->accepted, r = s->rejected, n = s->resets;
   mulClockFitReset(s);
   s->accepted = a;
@@ -93,6 +93,7 @@ static SHARED_HELPER void seed(mulClockFit_t *s, uint64_t epoch, uint64_t tx,
   s->lastRx = rx;
   s->count = 1;
   s->compensated = corrected;
+  s->resetReason = reason;
   s->covariance[0][0] = R;
   s->covariance[1][1] = 1e10;
   s->covariance[2][2] = 1e4;
@@ -175,7 +176,9 @@ mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
   s->fallback = mulClockFitWarmup;
   if (result == mulClockDiscontinuity || s->epoch != clock->epoch ||
       !s->count || s->compensated != corrected) {
-    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected);
+    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected,
+         !s->count ? mulClockResetStartup : result == mulClockDiscontinuity ? mulClockResetDiscontinuity :
+         s->epoch != clock->epoch ? mulClockResetEpoch : mulClockResetCompensation);
     return result;
   }
   int64_t dt = mulTimestampDifference(p->txTimestamp, s->lastTx),
@@ -183,12 +186,12 @@ mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
   if (dt <= 0 || dr <= 0 || dt >= INT64_C(191692800000) ||
       s->phase > INT64_MAX - INT64_C(1000000000) ||
       s->phase < INT64_MIN + INT64_C(1000000000)) {
-    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected);
+    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected, mulClockResetInterval);
     return result;
   }
   int64_t phase = s->phase + dr - dt;
   if (!update(s, (double)dt / 63897600000., phase)) {
-    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected);
+    seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected, mulClockResetNumerical);
     s->fallback = mulClockFitNumerical;
     return result;
   }

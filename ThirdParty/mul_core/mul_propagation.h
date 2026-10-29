@@ -15,6 +15,10 @@
 #if MUL_RELATIVE_SPEED_MM_S < -1 || MUL_RELATIVE_SPEED_MM_S > 1000000
 #error "MUL_RELATIVE_SPEED_MM_S must be -1 (UNKNOWN) or 0..1000000"
 #endif
+// A named stationary build must never silently emit strict v1 relations.
+#if defined(MUL_STATIONARY_CH5) && (MUL_PROP_MAX_AGE_MS != 6000 || MUL_RELATIVE_SPEED_MM_S != 0 || !MUL_HYBRID_CH5)
+#error "stationary-ch5 requires CH5, propagation6000 and explicit zero relative speed"
+#endif
 typedef enum {
   mulPropagationNone,
   mulPropagationFresh, // Measurement cycle or first reference after it.

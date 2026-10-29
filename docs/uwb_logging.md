@@ -804,7 +804,7 @@ validator restores the logged mapping and applied rate; it never re-estimates a
 historical clock with today's selected filter. It verifies the current vendor
 manifest plus baseline conversion-source hashes, allowing the estimator to change
 without silently changing historical TDoA math. Both consumers pin core
-`5cb841f17859e84b300ff7b1c6fb462bccc6e1ae` from the LPS canonical package.
+`bdfe0a10a41368efb5592466be266142e9938d09` from the LPS canonical package.
 The ESP firmware change is limited to the shared clock-envelope validator accepting
 version3; forwarding, control behavior, queues and Wi-Fi are unchanged.
 
@@ -828,3 +828,129 @@ Use the operator-only programming procedure above with the Universal ELF and upd
 ESP binary, preserve saved plans/calibration, then select each estimator only with
 RF OFF and record firmware revisions and selected method for all nodes. The ALRs
 need the updated LPS firmware as well. No device operation was run for this refactor.
+
+## Per-device antenna calibration and availability audit
+
+LPS mode5 now uses a per-device EEPROM TX/RX pair. Legacy absence retains
+TX14498/RX18453. The journal occupies384..439, in two32-byte slots after the
+existing plan slots; the old100-byte image and both plan slots are untouched.
+A CRC32 protects each versioned pair; an inactive-slot commit-last write plus full
+readback admits either the previous pair or the new pair after power loss.
+Read/verification failures block RF until recovery/reboot; malformed committed
+calibration does not trigger factory erase. No-op writes avoid EEPROM wear.
+`cal reset` explicitly commits the legacy pair; general configuration reset does
+not silently erase calibration. All commands require acknowledged RF OFF.
+
+Operator-only LPS commands (existing USB console, optionally colon-prefixed):
+
+```text
+:off
+:cal show
+:cal set tx <0..65535> rx <0..65535>
+:cal show
+```
+
+Successful settings persist immediately. `:on` reapplies both hardware registers
+and the TX driver cache during mode5 initialization. Readback validation checks
+against the selected pair, including after delayed-TX setup. `:cal reset` restores
+legacy antenna values explicitly. Hardware timestamp formulas are unchanged.
+
+STM32 already provides persistent `cfg set tx_ant_dtu N` and
+`cfg set rx_ant_dtu N`, with0..65535 validation. Its existing `cal show` also
+reports an **ADS-only additive** calibration; that additive parameter must not be
+mistaken for hardware antenna delay or applied to passive TDoA. No duplicate
+STM32 antenna parameters were added. Set both existing parameters with RF OFF,
+inspect `cfg show saved`, and only then resume with `on`. Antenna changes disable
+the old additive calibration through its existing workflow; retain the historical
+values separately, do not silently restore or reinterpret them.
+
+Physical procedure, performed by the operator only:
+
+1. Record firmware revisions, full saved plans, TX/RX registers, additive-calibration
+   state, power policy and RF state for132/133/141. Preserve these as the rollback
+   baseline. Use the named stationary profile on both ALRs and Universal on STM32.
+2. Fix all three nodes in LOS, same antenna orientation/height. Measure antenna
+   phase-centre separations for132–133,132–141,133–141 independently. Do not infer
+   distances from TDoA or these captures. Avoid very short/saturated links.
+3. Collect at least30 successful TWR ranges per pair, keeping addresses, channel5,
+   power policy and antenna registers unchanged. AR at0.05Hz needs about10minutes
+   per30 samples; the3-minute availability check below is not a calibration data
+   substitute. Use one direction/policy consistently and retain raw/power metadata.
+   Exclude failed exchanges, not inconvenient successful ranges. Investigate
+   multipath/outliers before trusting a fitted offset.
+4. Supply a JSON file to `python3 tools/antenna_calibration.py measurements.json`:
+   Set `additive_correction_removed:true` only after ensuring ADS additive
+   correction is disabled or subtracted from the supplied ranges. `devices` maps string IDs `132`,`133`,`141` to **actual current** integer `tx`
+   and `rx`; `pairs` has exactly three objects containing `nodes:[132,133]` (and
+   the other pairs), measured `known_m`, successful `ranges_m:[...]` and one
+   consistent `power_policy` (`applied`, `raw` or `unavailable`). This read-only
+   helper prints proposals, sample counts, medians and MAD; it never sends commands.
+5. Review proposals, then use RF-OFF commands above on each node to apply both
+   directions. Reboot and read back each pair before RF resumes. Do not overwrite
+   old calibration files. Recollect at a **different independently measured
+   distance** and preferably another orientation/power level before acceptance.
+
+The assumed model is `range_bias_ij = c/(2*f_DTU) * (delta_A_i+delta_A_j)`,
+where A is aggregate TX+RX hardware delay. Define `e_ij=(median_range-known)*f_DTU/c`;
+then `delta_A_i=e_ij+e_ik-e_jk`. Positive excess range therefore increases programmed
+aggregate delay. The helper rounds aggregate DTU and splits the **increment**44/56
+between TX/RX, preserving the historical baseline when the increment is zero.
+Three pairs identify aggregate node corrections only under reciprocity and
+constant-bias assumptions; they do not identify six independent TX/RX delays.
+The44/56 split is an initial assumption, especially unverified for DWM3000, not a
+measured calibration. Receive-power bias, NLOS, clock residuals and phase-centre
+error can all contaminate the fit; changing power/distance can invalidate it.
+No calibrated values were inferred from the existing stationary tests.
+
+Read-only loss diagnosis:
+
+```sh
+python3 tools/tdoa_availability.py ../uwb_logs/clock-tests/*/*.jsonl
+```
+
+This separates unavailable follower relations, explicit v2 propagation expiry,
+receiver-clock invalidity, reference/follower packets not observed, and gaps in
+host transport. V1 unavailable relations clear their delay fields: a row alone
+cannot prove whether expiry or follower-clock failure caused unavailability.
+Missing RF observations also do not prove antenna-level loss. Diagnostic drop
+increments are capture-local differences; boot cumulative counters and intentional
+transport filtering are not treated as missing TDoA packets. Use the production
+replay validator separately for integrity/completeness and exact mathematical replay.
+
+Three-minute validation after operator programming:
+
+1. Keep stationary geometry/calibration, plan826414CC, AA1Hz/AR0.05Hz,10ms spacing
+   and all timing budgets unchanged. Confirm both ALRs report CH5, age6000,
+   speed0/relation v2; confirm STM32 stationary rate policy and selected estimator.
+2. Begin with Median-5 on follower and receiver. Capture180seconds of JSONL and
+   both ALR USB logs, starting before RF resumes if possible. Exclude documented
+   startup warmup from a separately reported steady-state fraction, not from the
+   raw capture. Expect approximately180 vectors and9 AR periods per link.
+3. Run `tdoa_availability.py` and `validate_tdoa_replay.py ... --sanitize`. Require
+   no systematic cycle-ending-in1 holes, v2 fresh/reused relations across AR cycles,
+   no unexplained in-capture replay losses, and exact matches without mismatches.
+   Target the previous approximately96.8% valid fraction (report numerator and
+   denominator);180 samples are a smoke check, not a statistical guarantee.
+4. Repeat with Kalman using the same RF-OFF workflow. Inspect `rst` deltas and
+   `rr` last-reason codes; a compensation reset on every AR boundary is a failure.
+   Numerical resets, stale acceptance or scheduling/deadline changes require
+   investigation. Record stack high-water and service latency before long runs.
+
+Nothing in these procedures was executed on physical hardware by the assistant.
+
+
+Observed October29 vector availability was130/180,144/175,126/174 and156/179
+(72.2%,82.3%,72.4%,87.2%). All four use relation v1; the October28 baseline uses
+v2 with6000ms lifetime. All captured cycle-ending-in1 vectors are invalid. Test4's
+23 invalid vectors have both RF beacons present and an unavailable follower
+relation. Restoring the explicit stationary lifetime addresses this demonstrated
+failure path; it does not promise the same physical success fraction.
+
+All complete snapshots still replay exactly:179,174,173,178 matches respectively,
+no mismatches. None of the four files is replay-complete: Tests1/4 have possible
+closing-boundary omissions; Test2 lacks fragment3 of opening-cycle53 (initial
+boundary possible); Test3 lacks fragment3 of interior cycle105. These are separate
+from RF/TDoA availability. Capture-local diagnostic-drop increments are zero;
+sequence gaps are23/26/37/26 and may include intentionally filtered auxiliary
+traffic. Do not label all of those gaps as lost TDoA. No speculative forwarding
+optimization or counter suppression was implemented.
