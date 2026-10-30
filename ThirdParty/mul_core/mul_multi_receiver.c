@@ -107,7 +107,7 @@ bool mulMultiReceiverReceive(mulMultiReceiver_t *s,const uint8_t *frame,size_t n
  if(!slot) {
   s->cycleStartMs=now;
   mulNetwork_t pair;(void)mulSchedulePair(&s->schedule,1,&pair);
-  if(order==mulSequenceFirst)mulClockReset(&s->rate);
+  if(order==mulSequenceFirst&&!mulClockFitHoldover(&s->rate,&s->fit,&s->clockConfig,now))mulClockReset(&s->rate);
   if(age<=15)mulClockObserveFitted(&pair,&s->rate,&s->fit,&s->clockConfig,&out->broadcast.packet,rx,now,true,NULL);
   else mulClockReset(&s->rate);
   for(unsigned i=1;i<s->schedule.count;i++)evaluate(s,i,now);

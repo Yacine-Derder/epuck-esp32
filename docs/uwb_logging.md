@@ -954,3 +954,37 @@ from RF/TDoA availability. Capture-local diagnostic-drop increments are zero;
 sequence gaps are23/26/37/26 and may include intentionally filtered auxiliary
 traffic. Do not label all of those gaps as lost TDoA. No speculative forwarding
 optimization or counter suppression was implemented.
+
+### Bounded clock recovery comparison
+
+Shared core08db4d8 changes KF recovery only; ESP forwarding, queues and wire schemas
+are unchanged. Existing raw sequence/TX/RX, mapping age/status, fit readiness,
+fallback and reset metadata remain compatible. STM32 CLOCK text adds recovered/
+holdover; LPS KF text adds rc and loss text hold. A retained model never authorizes
+a stale mapping. Exact logged baseline validation still uses recorded rates.
+
+For a deliberate receiver counterfactual, run:
+
+```sh
+python3 tools/compare_clock_recovery.py ../uwb_logs/clock-comparison/kalman/20261030T144807019903Z-robot-0-raw.jsonl --alr ../uwb_logs/clock-comparison/kalman/alr133-kalman.log
+python3 tools/compare_clock_recovery.py ../uwb_logs/clock-comparison/median-A/20261030T143930318029Z-robot-0-raw.jsonl
+```
+
+The tool compiles old4060df1 and current canonical C on identical complete
+snapshots and asserts exact Median output equality. The optional follower replay
+uses real TX/RX with inferred1Hz coarse time, **without propagation compensation**;
+it does not reproduce follower hardware/TWR behavior or establish accuracy.
+Receiver replay cold-starts at capture entry and holds the recorded follower
+relations fixed. It does not synthesize absent references, relations or snapshots,
+use host reception time as UWB time, or infer ground truth from measurements.
+Use its scope labels rather than equating snapshot results to all294 physical
+cycles. Detailed numerical results, resource limits and operator-only hardware
+checks are in `../lps-node-firmware/docs/mul_experiment_campaign.md`.
+
+The physical Kalman capture's263 complete snapshots give224→225 valid receiver
+counterfactual pairs,8→4 filter resets,27→14 unapplied evaluations, and zero change
+on224 common valid TDoAs. Median-A's285 snapshots give264→264 valid and1→1 resets.
+All old/new Median results match. This supports a bounded recovery improvement,
+not a measured physical RMSE improvement. The ordinary exact replay validator
+still matches1190/1190 October28 results, and the paced actual STM/ESP/TCP/collector
+Kalman fixture matches140/140 interior results with boundary/loss accounting intact.

@@ -30,8 +30,12 @@ typedef struct {
   int32_t skewPpb;
   uint32_t rmsDtu, uncertaintyPpb, rejected, accepted, resets;
   uint8_t count, inliers, compensated, ready, applied,
-      fallback, resetReason;
+      fallback, resetReason, recovered;
 } mulClockFit_t;
+// Retain latent state only; never grants mapping freshness or delays validity.
+#define MUL_CLOCK_RECOVERY_MS 6000u
+bool mulClockFitHoldover(const mulClock_t *clock,const mulClockFit_t *fit,
+                        const mulClockFitConfig_t *config,uint32_t now);
 void mulClockFitDefaults(mulClockFitConfig_t *c);
 bool mulClockFitConfigValid(const mulClockFitConfig_t *c);
 bool mulClockFitConfigEncode(uint8_t out[MUL_CLOCK_CONFIG_BYTES],
@@ -40,7 +44,7 @@ bool mulClockFitConfigDecode(const uint8_t in[MUL_CLOCK_CONFIG_BYTES],
                              mulClockFitConfig_t *c);
 void mulClockFitReset(mulClockFit_t *s);
 /* Returns prediction without changing state/age. False on nonfinite/non-PSD
- * covariance or beyond the existing 2s mapping horizon. */
+ * covariance or beyond the6s latent recovery horizon. Mapping still expires at2s. */
 bool mulClockFitPredict(const mulClockFit_t *s, double seconds, double state[3],
                         double covariance[3][3]);
 mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,

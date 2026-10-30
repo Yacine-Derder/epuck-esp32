@@ -25,7 +25,7 @@ void mulHybridInit(mulHybrid_t *s,const uint8_t receiver[8],bool stationary) {
 
 void mulHybridExpire(mulHybrid_t *s,uint32_t now) {
  mulAssociationExpireNetwork(&s->network,&s->association,s->observations,now);
- if(s->rate.hasBaseline&&(uint32_t)(now-s->rate.observedMs)>=MUL_SOURCE_TIMEOUT_MS)mulClockReset(&s->rate);
+ if(s->rate.hasBaseline&&(uint32_t)(now-s->rate.observedMs)>=MUL_SOURCE_TIMEOUT_MS&&!mulClockFitHoldover(&s->rate,&s->fit,&s->clockConfig,now))mulClockReset(&s->rate);
  if(s->twrActive&&(uint32_t)(now-s->twrStartedMs)>=200U){s->twrActive=false;s->twrTimeouts++;}
 }
 static bool twrObserve(mulHybrid_t *s,const mulTwrPacket_t *p,uint64_t rx,uint32_t now,mulHybridOutput_t *out) {
@@ -110,7 +110,7 @@ bool mulHybridReceive(mulHybrid_t *s,const uint8_t *f,size_t n,uint64_t rx,uint3
      s->relation=r;o->remoteEpochKnown=r.epoch!=0;
    }
    if(role==mulAlrReference&&out->order!=mulSequenceDuplicate&&out->order!=mulSequenceOld) {
-     if(out->order==mulSequenceFirst)mulClockReset(&s->rate);
+     if(out->order==mulSequenceFirst&&!mulClockFitHoldover(&s->rate,&s->fit,&s->clockConfig,now))mulClockReset(&s->rate);
      mulClockObserveFitted(network,&s->rate,&s->fit,&s->clockConfig,&p,rx,now,true,NULL);
    }
    if(associated) {

@@ -24,9 +24,9 @@ static void scenario(unsigned method, unsigned mode) {
   int64_t tx = MUL_TIMESTAMP_MASK - DT / 2, rx = tx - 100000, phase = 0;
   unsigned now = UINT32_MAX - 2000, seq = 0, applied = 0;
   for (unsigned i = 0; i < 500; i++) {
-    unsigned n = mode == 3 && i % 17 == 0 ? 2 : 1;
+    unsigned n = mode == 7 ? (i%47==0?6:i%23==0?3:1) : mode == 3 && i % 17 == 0 ? 2 : 1;
     double skew = mode == 1 ? -35000 : 15000;
-    if (mode == 2)
+    if (mode == 2 || mode == 7)
       skew += .2 * i;
     if (mode == 4)
       skew += sin(i / 30.) * 30;
@@ -41,7 +41,9 @@ static void scenario(unsigned method, unsigned mode) {
     seq += n;
     observation(&clock, &s, &c, seq, mulTimestampMask(tx),
                 mulTimestampMask(rx + noise), now);
-    if (i > 450) {
+    if (i > 450 && method==0 && mode==7 && clock.count<5) {
+      assert(clock.status!=mulClockValid);
+    } else if (i > 450) {
       assert(clock.status == mulClockValid);
       assert(abs(clock.skewPpb - (int)round(skew)) < 20);
     }
@@ -146,10 +148,47 @@ static void ar_cycle(void) {
   }
   assert(fit.resets==(MUL_PROP_MAX_AGE_MS==1000?5u:1u));
 }
+static void loss_recovery(unsigned gap,bool corrupt,bool numerical){
+ mulClock_t clock;mulClockReset(&clock);mulClockFit_t fit;mulClockFitReset(&fit);
+ mulClockFitConfig_t c;mulClockFitDefaults(&c);c.estimator=2;
+ uint32_t seq=UINT32_MAX-20,now=UINT32_MAX-20000;uint64_t tx=MUL_TIMESTAMP_MASK-DT;
+ uint64_t rx=tx;for(unsigned i=0;i<12;i++){
+  tx=mulTimestampMask(tx+DT);rx=mulTimestampMask(rx+DT+DT*12000/1000000000);
+  observation(&clock,&fit,&c,++seq,tx,rx,now+=1000);
+ }
+ assert(fit.applied);uint32_t resets=fit.resets;uint64_t epoch=clock.epoch;
+ assert(mulClockMapStatus(&clock,now+2001)==mulClockMapStale);
+ double x[3],cov[3][3];assert(mulClockFitPredict(&fit,gap,x,cov));
+ assert(cov[1][1]>=fit.covariance[1][1]);
+ if(numerical)fit.covariance[1][1]=NAN;
+ tx=mulTimestampMask(tx+gap*DT);rx=mulTimestampMask(rx+gap*DT+gap*DT*12000/1000000000);
+ if(corrupt)rx=mulTimestampMask(rx+100000000);
+ observation(&clock,&fit,&c,seq+=gap,tx,rx,now+=gap*1000);
+ if(corrupt||numerical){assert(!fit.applied&&mulClockMapStatus(&clock,now)!=mulClockMapValid);if(corrupt)assert(clock.epoch!=epoch&&fit.resetReason==mulClockResetDiscontinuity);}
+ else{assert(fit.applied&&fit.resets==resets&&clock.epoch==epoch);assert(abs(clock.skewPpb-12000)<2);}
+ if(gap>=3&&!corrupt&&!numerical){assert(fit.recovered&&clock.count==0);}
+ // A new observation, not a prediction, owns the mapping origin.
+ assert(clock.observedMs==now&&clock.localRx==rx);
+ observation(&clock,&fit,&c,seq+8,mulTimestampMask(tx+8*DT),mulTimestampMask(rx+8*DT),now+8000);
+ assert(fit.resets>resets&&!fit.applied&&clock.epoch!=epoch);
+}
+static void invalid_recovery_sequence(void){
+ mulClock_t clock;mulClockReset(&clock);mulClockFit_t fit;mulClockFitReset(&fit);
+ mulClockFitConfig_t c;mulClockFitDefaults(&c);c.estimator=2;
+ for(unsigned i=0;i<12;i++)observation(&clock,&fit,&c,i,100+i*DT,200+i*DT,10000+i*1000);
+ uint32_t age=clock.observedMs;uint64_t epoch=clock.epoch;
+ observation(&clock,&fit,&c,10,100+14*DT,200+14*DT,age+3000);
+ assert(clock.observedMs==age&&clock.epoch==epoch&&mulClockMapStatus(&clock,age+3000)==mulClockMapStale);
+ observation(&clock,&fit,&c,UINT32_C(0x40000000),100+14*DT,200+14*DT,age+3000);
+ assert(clock.epoch!=epoch&&!fit.applied);
+}
 int main(void) {
+  invalid_recovery_sequence();
+  for(unsigned gap=1;gap<=6;gap++)loss_recovery(gap,false,false);
+  loss_recovery(3,true,false);loss_recovery(3,false,true);
   ar_cycle();
   for (unsigned method = 0; method <= 2; method += 2)
-    for (unsigned mode = 0; mode < 7; mode++)
+    for (unsigned mode = 0; mode < 8; mode++)
       scenario(method, mode);
   mulClockFitConfig_t c;
   mulClockFitDefaults(&c);

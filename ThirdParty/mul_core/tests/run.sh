@@ -66,3 +66,6 @@ cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-p
 cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
  -I. tests/test_ekf.c mul_ekf.c mul_ekf_stream.c mul_pose.c mul_schedule.c mul_common.c -lm -o "$work/ekf"
 "$work/ekf"
+cc -std=c11 -Wall -Wextra -Werror -g -fsanitize=address,undefined -fno-pie -no-pie \
+ -I. tests/test_antenna_offset.c -o "$work/antenna_offset"
+"$work/antenna_offset"

@@ -79,7 +79,7 @@ static bool predict(const mulClockFit_t *s, double d, double x[3],
 }
 bool mulClockFitPredict(const mulClockFit_t *s, double d, double x[3],
                         double p[3][3]) {
-  return predict(s, d, x, p, 2);
+  return predict(s, d, x, p, 6);
 }
 static SHARED_HELPER void seed(mulClockFit_t *s, uint64_t epoch, uint64_t tx,
                                uint64_t rx, bool corrected, uint8_t reason) {
@@ -100,7 +100,7 @@ static SHARED_HELPER void seed(mulClockFit_t *s, uint64_t epoch, uint64_t tx,
 }
 static bool update(mulClockFit_t *s, double d, int64_t phase) {
   double x[3], p[3][3];
-  if (!predict(s, d, x, p, 3))
+  if (!predict(s, d, x, p, 6))
     return false;
   double innovation = (double)phase - x[0], sigma = sqrt(p[0][0] + R);
   double weight =
@@ -132,6 +132,27 @@ static bool update(mulClockFit_t *s, double d, int64_t phase) {
       fabs(innovation) >= UINT32_MAX ? UINT32_MAX : ceiling(fabs(innovation));
   return true;
 }
+bool mulClockFitHoldover(const mulClock_t *clock,const mulClockFit_t *s,
+                        const mulClockFitConfig_t *c,uint32_t now){
+ return c->estimator==mulClockEstimatorKalman&&clock->hasBaseline&&s->ready&&
+   s->epoch&&s->epoch==clock->epoch&&(uint32_t)(now-clock->observedMs)<=MUL_CLOCK_RECOVERY_MS;
+}
+/* A returning real observation must prove both clock domains continuous. The
+ * median restarts its own history; retaining the KF never makes it a valid fallback. */
+static bool recover(mulClock_t *clock,const mulClockFit_t *s,const mulClockFitConfig_t *c,
+                    const mulTestPacket_t *p,uint64_t rx,uint32_t now){
+ if(!mulClockFitHoldover(clock,s,c,now)||clock->periodMs!=c->periodMs)return false;
+ uint32_t advance=p->sequence-clock->sequence;
+ if(!advance||advance>(MUL_CLOCK_RECOVERY_MS/c->periodMs))return false;
+ int64_t dt=mulTimestampDifference(p->txTimestamp,clock->referenceTx),dr=mulTimestampDifference(rx,clock->localRx);
+ int64_t expected=(int64_t)advance*c->periodMs*INT64_C(63897600),tolerance=(c->periodMs/10)*INT64_C(63897600);
+ if(dt<=0||dr<=0||
+    dt<expected-tolerance||dt>expected+tolerance||
+    dr-dt>dt*MUL_CLOCK_MAX_PPB/1000000000||dt-dr>dt*MUL_CLOCK_MAX_PPB/1000000000)return false;
+ clock->count=clock->next=clock->samples=0;clock->status=mulClockWarmup;
+ clock->referenceTx=mulTimestampMask(p->txTimestamp);clock->localRx=mulTimestampMask(rx);
+ clock->sequence=p->sequence;clock->observedMs=now;return true;
+}
 mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
                                        mulClock_t *clock, mulClockFit_t *s,
                                        const mulClockFitConfig_t *c,
@@ -141,8 +162,11 @@ mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
   if (!clock || !s || !mulClockFitConfigValid(c))
     return mulClockIgnored;
   int32_t previous = clock->skewPpb;
-  mulClockResult_t result = mulClockObservePeriodNetwork(
+  bool resumed=valid&&p&&mulNetworkRole(network,p->source)==mulAlrReference&&
+      (uint32_t)(now-clock->observedMs)>=MUL_SOURCE_TIMEOUT_MS&&recover(clock,s,c,p,rx,now);
+  mulClockResult_t result = resumed?mulClockSample:mulClockObservePeriodNetwork(
       network, clock, p, rx, now, valid, c->periodMs);
+  if(resumed)s->recovered=1;
   if (result == mulClockIgnored)
     return result;
   if (!clock->epoch) {
@@ -183,7 +207,7 @@ mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
   }
   int64_t dt = mulTimestampDifference(p->txTimestamp, s->lastTx),
           dr = mulTimestampDifference(fittedRx, s->lastRx);
-  if (dt <= 0 || dr <= 0 || dt >= INT64_C(191692800000) ||
+  if (dt <= 0 || dr <= 0 || dt > INT64_C(383385600000) ||
       s->phase > INT64_MAX - INT64_C(1000000000) ||
       s->phase < INT64_MIN + INT64_C(1000000000)) {
     seed(s, clock->epoch, p->txTimestamp, fittedRx, corrected, mulClockResetInterval);
@@ -213,7 +237,7 @@ mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
   /* 1ppm conditional sigma ceiling reuses the existing median stability scale;
    * not a physical accuracy bound. Five intervals are required on both methods.
    */
-  bool mature = clock->count == 5 && s->count == 5;
+  bool mature = (clock->count == 5 || s->recovered) && s->count == 5;
   s->ready = mature && isfinite(rate) && fabs(rate) <= MUL_CLOCK_MAX_PPB &&
              isfinite(sigma) && variance >= 0 &&
              sigma <= MUL_CLOCK_STABILITY_PPB;
@@ -226,6 +250,12 @@ mulClockResult_t mulClockObserveFitted(const mulNetwork_t *network,
    */
   if (mature &&
       s->rmsDtu > K * ((double)dt / 63897600000.) * MUL_CLOCK_STABILITY_PPB) {
+    if(resumed){
+      mulClockReset(clock);
+      (void)mulClockObservePeriodNetwork(network,clock,p,rx,now,true,c->periodMs);
+      seed(s,clock->epoch,p->txTimestamp,rx,false,mulClockResetDiscontinuity);
+      return mulClockDiscontinuity;
+    }
     clock->status = mulClockWarmup;
     s->ready = 0;
     s->fallback = mulClockFitUncertain;
