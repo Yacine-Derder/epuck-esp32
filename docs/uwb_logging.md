@@ -1052,3 +1052,42 @@ The paced actual STM/ESP/TCP/collector test has140 exact interior pairs; the
 October28 recording remains1190/1190 exact matches. ESP app binary854288 B in a
 1048576 B partition; image sections854176 B; static data+bss53343 B (unchanged RAM).
 No physical timing or range-accuracy claim is made by these offline checks.
+
+
+## Codec5 TDMA compatibility
+
+No ESP32 firmware or bridge protocol change is required for the new explicit
+TDMA plan. UWB3 frames, RF5 raw records and schema3 replay snapshots retain their
+wire formats. The64-byte plan blob carries codec5/policy2 and the existing full
+semantic fingerprint; STM32's production decoder checks scheduling semantics.
+The host collector keeps the blob intact and continues to read old recordings.
+Do not substitute the stored nested CRC for the semantic fingerprint.
+
+With matching sibling STM32 source, the new offline integration command is:
+
+```sh
+python3 tools/verify_tdoa_replay.py --kalman --tdma
+```
+
+This runs a three-ALR5ms/200ms fixture through the actual STM32 replay codec,
+ESP32 owner/queues/framing, loopback TCP including reconnect, collector and
+production-C replay. It verifies45 cycles /90 pairs and90 exact TDoA/vector
+comparisons, zero transport gaps and complete replay. It uses an accelerated,
+unpaced host bridge; it does **not** establish real UART throughput or board
+5Hz RF timing. `--tdma --paced` is rejected explicitly because the paced fixture
+exercises the existing two-ALR1000ms queue-overflow scenario. Retain that separate
+stress test:
+
+```sh
+python3 tools/verify_tdoa_replay.py --paced --kalman
+bash tests/run_host.sh
+```
+
+The paced test deliberately drops optional raw/quality messages under pressure,
+reports the initial connection boundary, and verifies all140 interior pairs with
+no observed replay drops. Never suppress these losses or certify a boundary
+snapshot complete. Physical multi-follower5Hz replay throughput still needs an
+operator capture; no firmware baud/queue changes were made here. See the
+[canonical TDMA guide](https://github.com/Yacine-Derder/lps-node-firmware/blob/master/docs/mul_tdma.md)
+for ALR/RLR build, configuration and hardware acceptance commands. No ESP32
+reflashing or live configuration changes are needed for transport compatibility.

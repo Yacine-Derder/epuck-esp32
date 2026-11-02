@@ -29,6 +29,7 @@ class Replay(unittest.TestCase):
         trace = cls.path/'trace.uart'
         subprocess.run(['python3', str(STM/'tools/build_replay_host.py'), '--fixture', '--sanitize', '--output', str(exe)], check=True)
         subprocess.run([str(exe)], env=dict(os.environ, MUL_REPLAY_TRACE=str(trace)), check=True, stdout=subprocess.DEVNULL)
+        cls.exe = exe
         cls.lines = trace.read_text().splitlines()
         cls.fragments = [line for line in cls.lines if decode(line)['type']=='tdoa_replay_fragment']
 
@@ -147,6 +148,22 @@ class Replay(unittest.TestCase):
         row['expected']['tdoa_dtu']+=1
         path=self.path/'tampered.jsonl';path.write_text(json.dumps(row)+'\n')
         self.assertTrue(validate(path,STM)['invalid_records'])
+
+    def test_tdma_codec5_three_alrs_200ms_replays_exactly(self):
+        trace=self.path/'tdma.uart'
+        subprocess.run([str(self.exe)], env=dict(os.environ,MUL_REPLAY_TRACE=str(trace),MUL_REPLAY_TDMA='1',MUL_REPLAY_KALMAN='1'),check=True,stdout=subprocess.DEVNULL)
+        recording=self.path/'tdma.jsonl'
+        recording.write_text(self.project(trace.read_text().splitlines()))
+        result=validate(recording,STM,sanitize=True)
+        self.assertTrue(result['passed'],result)
+        self.assertTrue(result['replay_complete'],result)
+        self.assertEqual(result['exact_dtu_matches'],90)
+        self.assertEqual(result['vector_comparisons'],90)
+        rows=[json.loads(line) for line in recording.read_text().splitlines()]
+        replay=next(r for r in rows if r.get('type')=='tdoa_replay')
+        self.assertEqual(bytes.fromhex(replay['configuration_wire'])[0],5)
+        self.assertEqual(replay['cycle_ms'],200)
+
 
 class ReplayAccounting(unittest.TestCase):
     def test_boot_baselines_and_backlog_are_not_capture_losses(self):
