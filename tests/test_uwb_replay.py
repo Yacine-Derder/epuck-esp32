@@ -57,6 +57,23 @@ class Replay(unittest.TestCase):
         self.assertTrue(any(r['expected']['tdoa_dtu']<0 and r['expected']['status']==4 for r in rows))
         self.assertTrue(any(r['relation']['delay_dtu']>0 for r in rows))
 
+    def test_rf5_fingerprint_is_not_storage_crc_and_legacy_remains_readable(self):
+        rows=[json.loads(line) for line in self.project(self.lines).splitlines()]
+        row=next(r for r in rows if r.get('type')=='tdoa_replay')
+        self.assertEqual(row['replay_schema'],3)
+        configuration=bytes.fromhex(row['configuration_wire'])
+        legacy=int.from_bytes(configuration[60:64],'little')
+        semantic=bytearray(configuration[:60]);semantic[32:36]=bytes(4)
+        self.assertEqual(row['schedule_fingerprint'],f'{binascii.crc32(semantic):08X}')
+        self.assertNotEqual(row['schedule_fingerprint'],f'{legacy:08X}')
+        old=bytearray.fromhex(row['blob']);old[0]=2
+        self.assertEqual(snapshot(old,row['node'])['schedule_fingerprint'],f'{legacy:08X}')
+        # Historical RF4 raw telemetry is still observable by the collector.
+        line=next(line for line in self.lines if decode(line)['type']=='multi_rx' and decode(line).get('plan_radio_version')==5)
+        data=bytearray.fromhex(line[5:]);length=data[137];data[40+(84 if length==90 else 34)]=4
+        data[-2:]=binascii.crc_hqx(data[:-2],0xffff).to_bytes(2,'little')
+        self.assertEqual(decode('UWB3 '+data.hex())['plan_radio_version'],4)
+
     def test_kalman_schema_and_exact_replay(self):
         exe=self.path/'kalman';trace=self.path/'kalman.uart'
         subprocess.run(['python3',str(STM/'tools/build_replay_host.py'),'--fixture','--sanitize','--output',str(exe)],check=True)

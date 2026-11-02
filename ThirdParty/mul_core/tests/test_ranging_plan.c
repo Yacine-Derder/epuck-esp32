@@ -115,7 +115,7 @@ static void startDelay(void) {
  mulRangingPlan_t p=plan(2,1,20,3,1000);
  p.broadcast.slotMs=10;p.broadcast.rxBudgetUs=5000;
  p.aaMilliHz=1000;p.arMilliHz=50;
- assert(mulRangingPlanFingerprint(&p)==0x826414cc);
+ assert(mulRangingPlanFingerprint(&p)==0x856ab19d);
  uint8_t old[64],bytes[64];assert(mulRangingPlanEncode(old,&p)&&old[0]==2);
  mulRangingOperation_t baseline,shifted,remote;
  assert(mulRangingPlanOperation(&p,1,0,&baseline));
@@ -123,7 +123,7 @@ static void startDelay(void) {
  p.aaStartDelayUs=50000;
  assert(!mulRangingPlanValidate(&p,NULL)&&mulRangingPlanEncode(bytes,&p)&&bytes[0]==4);
  mulRangingPlan_t follower;assert(mulRangingPlanDecode(bytes,&follower)&&follower.aaStartDelayUs==50000);
- assert(mulRangingPlanFingerprint(&p)==mulRangingPlanFingerprint(&follower)&&mulRangingPlanFingerprint(&p)!=0x826414cc);
+ assert(mulRangingPlanFingerprint(&p)==mulRangingPlanFingerprint(&follower)&&mulRangingPlanFingerprint(&p)!=0x856ab19d);
  for(unsigned c=0;c<200;c++) {
   verify(&p,c);assert(mulRangingPlanCount(&p,c)==mulRangingPlanCount(&follower,c));
   for(unsigned i=0;i<mulRangingPlanCount(&p,c);i++) {
@@ -149,4 +149,36 @@ static void startDelay(void) {
  verify(&follower,UINT32_MAX);
  puts("AA delay: baseline hash/timing preserved; shared shifted windows, AR unchanged, collision/end rejection, codec4 roundtrip passed");
 }
-int main(void){matrix();fairness();freshness();startDelay();return 0;}
+static void fingerprint_collision(void){
+ mulRangingPlan_t a=plan(2,1,20,3,1000);a.broadcast.slotMs=10;a.broadcast.rxBudgetUs=5000;a.aaMilliHz=1000;a.arMilliHz=50;
+ mulRangingPlan_t b=a;b.broadcast.count=3;b.broadcast.ids[2]=134;
+ uint8_t x[64],y[64];assert(mulRangingPlanEncode(x,&a)&&mulRangingPlanEncode(y,&b));
+ assert(memcmp(x,y,60)&&!memcmp(x+60,y+60,4)); // Reproduce legacy cancellation.
+ assert(mulScheduleCrc(x,60)==0x826414cc&&mulScheduleCrc(y,60)==0x826414cc);
+ assert(mulRangingPlanFingerprint(&a)==0x856ab19d&&mulRangingPlanFingerprint(&b)==0x6d0b45bd);
+ a.broadcast.revision=b.broadcast.revision=23;
+ assert(mulRangingPlanFingerprint(&a)==0x65321a17&&mulRangingPlanFingerprint(&b)==0x8d53ee37);
+ a.policy=1;uint32_t edf=mulRangingPlanFingerprint(&a);
+ b=a;b.aaPriority=1;assert(mulRangingPlanFingerprint(&b)!=edf);
+ b=a;b.arPriority=1;assert(mulRangingPlanFingerprint(&b)!=edf);a.policy=0;
+ const uint32_t hash=mulRangingPlanFingerprint(&a);
+ for(unsigned field=0;field<19;field++){
+  b=a;
+  switch(field){
+   case 0:b.broadcast.revision++;break;case 1:b.broadcast.ids[0]=131;break;case 2:b.broadcast.ids[1]=134;break;
+   case 3:b.broadcast.count=3;b.broadcast.ids[2]=134;break;
+   case 4:b.broadcast.slotMs=20;break;case 5:b.broadcast.periodMs=1100;break;
+   case 6:b.broadcast.txLeadUs+=100;break;case 7:b.broadcast.rxBudgetUs+=100;break;
+   case 8:b.broadcast.airtimeUs+=100;break;case 9:b.broadcast.guard100us++;break;
+   case 10:b.rlrs[0]=142;break;case 11:b.rlrCount=2;b.rlrs[1]=142;break;
+   case 12:b.aaMilliHz=900;break;case 13:b.arMilliHz=60;break;case 14:b.replyMs=10;break;
+   case 15:b.maxUtilization=71;break;case 16:b.enabled=1;break;
+   case 17:b.policy=1;b.aaPriority=2;b.arPriority=1;break;case 18:b.aaStartDelayUs=1000;break;
+  }
+  assert(!mulRangingPlanValidate(&b,NULL)&&mulRangingPlanFingerprint(&b)!=hash);
+  assert(mulRangingPlanEncode(y,&b));mulRangingPlan_t decoded;assert(mulRangingPlanDecode(y,&decoded));
+  assert(mulRangingPlanFingerprint(&decoded)==mulRangingPlanFingerprint(&b));
+  for(unsigned i=0;i<64;i++){y[i]^=1;assert(!mulRangingPlanDecode(y,&decoded));y[i]^=1;}
+ }
+}
+int main(void){fingerprint_collision();matrix();fairness();freshness();startDelay();return 0;}

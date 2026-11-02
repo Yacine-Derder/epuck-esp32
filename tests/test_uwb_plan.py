@@ -55,6 +55,7 @@ class Planned(unittest.TestCase):
                 with self.assertRaises(ValueError): decode(wire(b))
             if original[3] == 12:
                 n = original[137]
+                # RF4 and RF5 are valid recorded versions; use unsupported3.
                 for offset in (40+(84 if n==90 else 34), 140):
-                    b = original.copy(); b[offset] ^= 1
+                    b = original.copy(); b[offset] = 3 if offset==40+(84 if n==90 else 34) else b[offset]^1
                     with self.assertRaises(ValueError): decode(wire(b))

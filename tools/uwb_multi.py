@@ -31,10 +31,11 @@ def decode_multi(data, out):
             raise ValueError('multi raw envelope')
         frame = data[40:40+n]
         fingerprint = int.from_bytes(data[140:144], 'little')
-        if planned and (frame[84 if n == 90 else 34] != 4
+        if planned and (frame[84 if n == 90 else 34] not in (4,5)
                         or int.from_bytes(frame[86:90] if n == 90 else frame[36:40], 'little') != fingerprint
                         or (n == 90 and frame[85] >= 32)):
             raise ValueError('planned raw binding')
+        if planned:out['plan_radio_version']=frame[84 if n==90 else 34]
         out.update(multi_frame=data[40:40+n].hex().upper(), multi_length=n,
                    rx=f'{int.from_bytes(data[130:135], "little"):010X}',
                    capture_age_ms=int.from_bytes(data[135:137], 'little'), slot_ms=slot,

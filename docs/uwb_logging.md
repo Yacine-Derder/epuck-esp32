@@ -988,3 +988,67 @@ All old/new Median results match. This supports a bounded recovery improvement,
 not a measured physical RMSE improvement. The ordinary exact replay validator
 still matches1190/1190 October28 results, and the paced actual STM/ESP/TCP/collector
 Kalman fixture matches140/140 interior results with boundary/loss accounting intact.
+
+### RF5 plan identity: coordinated firmware/collector update
+
+The canonical shared core pin iscd51263. Live planned broadcast/TWR frames now
+carry RF version5, with a semantic plan fingerprint: CRC32 of encoded plan bytes
+0..59 after zeroing the inner schedule CRC at32..35. The old outer storage CRC
+included a CRC codeword and therefore masked roster/revision/timing changes.
+The stored64-byte codecs2/3/4 and both integrity checks remain unchanged; no
+EEPROM/configuration migration or calibration reset is required.
+
+The November2 revision23 stationary fixture uses lead1000/process5000/air1000/
+guard100us,10ms slots,1000ms cycle,AA1000/AR50mHz,reply20,util70,fair,AA delay0.
+Its RF5 hashes are65321A17 for ALRs132/133 and8D53EE37 for132/133/134, both with
+RLR141. Revision1 gives856AB19D and6D0B45BD. Different revisions or any other full
+plan field must not be assumed to share one of these hashes. The old826414CC is
+still the stored outer CRC for these fixtures; it is not their new network hash.
+
+New replay fragments/blob use schema3, retaining the same384-byte snapshot and
+four152-byte envelopes. The host computes the semantic fingerprint from full
+validated configuration bytes. Schemas1/2 retain their historical trailer-CRC
+interpretation, so old recordings are not silently relabelled. Raw plan telemetry
+accepts historical RF4 and current RF5 and exposes `plan_radio_version`. The
+telemetry plan-profile marker remains4; it is distinct from radio version5.
+No Wi-Fi/control/queue behavior or TDoA math changed.
+
+Reflashing requirements, for the operator only (no device operation was performed
+by the agent):
+
+1. Record saved full plans, addresses and antenna settings, then stop RF/robots.
+   Update **every participating ALR and RLR**, including ALR134 when present.
+   RF4/RF5 live decoders deliberately reject each other, so partial radio-group
+   updates do not interoperate. Existing saved plans load and acquire their new
+   hash automatically; do not factory-reset, erase storage or reinitialize plans.
+2. Update ESP32 firmware on every bridge used for RF5 capture: its old canonical
+   validator rejects RF5 raw frames before TCP forwarding. Update the collector/
+   replay tools as well. A successful essential-data stream alone does not prove
+   that an old bridge is preserving the new raw diagnostics.
+3. Use LPS `sudo make -f profiles/stationary-ch5.mk dfu` after its matching build;
+   use STM32 Universal and the configuration-preserving SWD procedure in
+   `../epuck-stm32/docs/hybrid_uwb.md`. Neither operation erases saved calibration.
+4. Build/program ESP with the established identified port, not a guessed device:
+
+   ```sh
+   cd ~/Documents/epuck-esp32
+   source ~/.espressif/tools/activate_idf_v6.1.sh
+   python3 "$IDF_PATH/tools/idf.py" build
+   python3 "$IDF_PATH/tools/idf.py" -p "$ESP32_PORT" flash
+   ```
+
+   Follow `docs/disconnect_diagnostics.md` for hardware setup/port identification.
+   No `erase-flash` or NVS reset is needed; partition layout is unchanged.
+5. Before RF resumes, compare full plan dumps and hashes on all nodes. Existing
+   different rosters now correctly mismatch; align configurations only as a
+   deliberate separate operator action. After resuming, require raw version5,
+   schema3 snapshots, matching local/wire hashes and exact production-C replay.
+
+Offline validation covers the original collision, all configurable field groups,
+independent priorities, RF4 rejection by live RF5 decoders, historical raw RF4
+collector acceptance, full storage-payload compatibility, journal cut/reboot tests,
+new schema3 mathematical replay and unchanged schema1/2 historical replay.
+The paced actual STM/ESP/TCP/collector test has140 exact interior pairs; the
+October28 recording remains1190/1190 exact matches. ESP app binary854288 B in a
+1048576 B partition; image sections854176 B; static data+bss53343 B (unchanged RAM).
+No physical timing or range-accuracy claim is made by these offline checks.

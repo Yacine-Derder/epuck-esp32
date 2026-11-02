@@ -38,5 +38,6 @@ bool mulRangingPlanOperation(const mulRangingPlan_t *p,uint32_t cycle,unsigned i
 bool mulRangingPlanEncode(uint8_t out[MUL_PLAN_BYTES],const mulRangingPlan_t *p);
 bool mulRangingPlanDecode(const uint8_t in[MUL_PLAN_BYTES],mulRangingPlan_t *p);
 const char *mulRangingPlanDecodeError(const uint8_t in[MUL_PLAN_BYTES],mulRangingPlan_t *p);
+// Semantic payload CRC, independent of the nested schedule/storage checksums.
 uint32_t mulRangingPlanFingerprint(const mulRangingPlan_t *p);
 #endif

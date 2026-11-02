@@ -445,3 +445,28 @@ pair retargeting; only a newer valid source observation can replace them. Call
 `mulPoseStreamExpire` regularly, before a full uint32 local-time wrap. Runtime
 cache queries also latch expired status. Pure snapshot geometry cannot infer
 multiple wraps from a32-bit timestamp alone; periodic bank service is required.
+
+
+## Plan identity: RF5
+
+RF5 hashes the canonical64-byte encoded plan's first60 bytes, with the embedded
+schedule CRC (plan bytes32..35) replaced by zero. The derived checksum is excluded
+from identity so its CRC residue cannot cancel roster/revision/timing changes.
+All meaningful schedule and plan bytes remain included. CRC32 is an error/
+configuration fingerprint, not a cryptographic or collision-free identifier.
+Live planned broadcast/TWR decoders accept RF5 only; RF4 is intentionally rejected,
+even for matching rosters. Record/collector validators may decode historical RF4.
+
+Stored plan codecs2/3/4, their64-byte layout, nested schedule CRC and outer CRC
+remain byte-for-byte unchanged. Existing plan journals/configuration sectors are
+loaded without migration writes, reset or erase; the RF5 identity is recomputed
+from the validated stored plan. The old826414CC value remains a valid storage CRC,
+not the new live fingerprint. Replay schema3 identifies the new identity rule;
+readers retain schema1/2 semantics for historical captures.
+
+Golden stationary plans: ALRs132/133 or132/133/134, RLR141,10ms slots,1000ms cycle,
+AA1000/AR50mHz,reply20ms,util70%,lead1000/process5000/air1000/guard100us,
+fair policy,AA delay0. Revision23 fingerprints are65321A17 (two ALRs) and8D53EE37
+(three). Revision1 fingerprints are856AB19D and6D0B45BD. All timing, IDs and revision
+must match when comparing hashes. Stored CRC is826414CC for all four legacy
+encodings, reproducing the original cancellation bug.

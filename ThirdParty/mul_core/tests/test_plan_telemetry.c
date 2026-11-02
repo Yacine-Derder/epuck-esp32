@@ -24,6 +24,7 @@ int main(int argc,char **argv) {
    assert(mulTelemetryEncode(line,sizeof(line),&r)&&mulTelemetryDecode(line,&decoded));assert(decoded.type==mulTlmPlanRx&&decoded.legacyLength==n);
    if(argc>1)puts(line);
    r.legacyFrame[version]=3;assert(!mulTelemetryEncode(line,sizeof(line),&r));r.legacyFrame[version]=4;
+   assert(mulTelemetryEncode(line,sizeof(line),&r)&&mulTelemetryDecode(line,&decoded)); // Historical RF4 is observable, not a live decoder opt-in.
    r.legacyFrame[hash]^=1;assert(!mulTelemetryEncode(line,sizeof(line),&r));r.legacyFrame[hash]^=1;
    if(n==90){r.legacyFrame[85]=32;assert(!mulTelemetryEncode(line,sizeof(line),&r));r.legacyFrame[85]=31;}
    r.type=mulTlmMultiRx;assert(!mulTelemetryEncode(line,sizeof(line),&r));r.type=mulTlmPlanRx;

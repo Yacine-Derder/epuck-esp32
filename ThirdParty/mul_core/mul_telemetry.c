@@ -60,8 +60,8 @@ static bool valid(const mulTelemetry_t *r){
   unsigned n=r->legacyLength;
   if(n!=40&&n!=80&&n!=90)return false;
   const uint8_t *f=r->legacyFrame;
-  if(n==90?(f[84]!=MUL_PLAN_RADIO_VERSION||f[85]>=MUL_PLAN_MAX_OPERATIONS||get(f+86,4)!=r->scheduleFingerprint):
-    (f[34]!=MUL_PLAN_RADIO_VERSION||get(f+36,4)!=r->scheduleFingerprint))return false;
+  if(n==90?((f[84]!=4&&f[84]!=MUL_PLAN_RADIO_VERSION)||f[85]>=MUL_PLAN_MAX_OPERATIONS||get(f+86,4)!=r->scheduleFingerprint):
+    ((f[34]!=4&&f[34]!=MUL_PLAN_RADIO_VERSION)||get(f+36,4)!=r->scheduleFingerprint))return false;
  }
  if(rawRecord(r)&&((r->legacyLength!=40&&r->legacyLength!=80&&r->legacyLength!=90)||
     r->legacyRx>UINT64_C(0xffffffffff)||!r->scheduleRevision||

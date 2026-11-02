@@ -1,4 +1,4 @@
-"""Schema-1 replay snapshots. Lossless integers, bounded reassembly, no TDoA math."""
+"""Replay snapshots1..3 (legacy and semantic plan fingerprints). Lossless integers, bounded reassembly, no TDoA math."""
 import binascii
 from collections import OrderedDict
 
@@ -14,7 +14,7 @@ def digest(blob):
 
 
 def fragment(data, out):
-    if data[11] not in (1, 2):
+    if data[11] not in (1, 2, 3):
         raise ValueError(f'unsupported tdoa_replay schema {data[11]}')
     if (data[2] != 3 or data[6] != 2 or data[7] not in (4, 5) or data[8] != 2 or
             data[9] or data[10] != 1 or data[40] >= PARTS or data[41] != PARTS or
@@ -51,7 +51,7 @@ class Reader:
 
 
 def snapshot(blob, node):
-    if len(blob) != SIZE or blob[0] not in (1, 2):
+    if len(blob) != SIZE or blob[0] not in (1, 2, 3):
         raise ValueError('replay snapshot size/version')
     r = Reader(blob)
     version, planned, slot, stationary = r.take(4)
@@ -64,7 +64,7 @@ def snapshot(blob, node):
     configuration = r.take(64)
     schedule = configuration[4:36] if planned else configuration[:32]
     if (planned > 1 or stationary > 1 or count != schedule[2] or not 2 <= count <= 8 or
-            not 1 <= slot < count or seen >> count or schedule[3] or schedule[0] not in (1, 2) or
+            not 1 <= slot < count or seen >> count or schedule[3] or schedule[0] not in (1, 2, 3) or
             binascii.crc32(schedule[:28]) != int.from_bytes(schedule[28:], 'little') or
             (not planned and any(configuration[32:])) or
             (planned and binascii.crc32(configuration[:60]) != int.from_bytes(configuration[60:], 'little'))):
@@ -107,7 +107,7 @@ def snapshot(blob, node):
                     ('uncertainty_ppb', 4, False), ('rejected', 4, False), ('accepted', 4, False),
                     ('resets', 4, False), ('count', 1, False), ('inliers', 1, False), ('ready', 1, False),
                     ('applied', 1, False), ('fallback', 1, False), ('compensated', 1, False)])
-    if version == 2:
+    if version >= 2:
         fit['innovation_abs_dtu'] = fit['rms_dtu'] if clock['config_wire'][2:4] == '02' else None
         fit['rms_dtu'] = None
     ages = [r.num(2), r.num(2)]
@@ -122,12 +122,16 @@ def snapshot(blob, node):
                          ('clock_valid', 1, False), ('rate_state', 1, False), ('reason', 1, False), ('source', 1, False)])
     if any(r.take(SIZE-r.at)):
         raise ValueError('replay reserved result')
+    fingerprint=configuration[60:64] if planned else schedule[28:32]
+    if planned and version>=3:
+        semantic=bytearray(configuration[:60]);semantic[32:36]=bytes(4)
+        fingerprint=binascii.crc32(semantic).to_bytes(4,'little')
     return dict(replay_schema=version, calculation_revision='506913dc676d0a3c0d43c48977ef11be2085aa34', source_version=source_version, cycle=cycle, pair_slot=slot, reference_node=ids[0], follower_node=ids[slot],
                 alr_ids=ids, seen_mask=seen, complete=bool(seen & 1 and seen & (1 << slot)),
                 cycle_start_ms=start, evaluation_ms=now, stationary=bool(stationary), planned=bool(planned),
                 configuration_wire=configuration.hex().upper(),
                 schedule_revision=int.from_bytes(schedule[8:12], 'little'),
-                schedule_fingerprint=f'{int.from_bytes(configuration[60:64] if planned else schedule[28:32], "little"):08X}',
+                schedule_fingerprint=f'{int.from_bytes(fingerprint, "little"):08X}',
                 slot_ms=int.from_bytes(schedule[4:6], 'little'), cycle_ms=int.from_bytes(schedule[6:8], 'little'),
                 observations=observations, relation=relation, clock=clock, fit=fit,
                 capture_age_ms=ages, rx_status=status, intermediates=intermediates, intermediates_captured=bool(intermediate_valid), admission_mismatch=bool(mismatch), expected=expected,

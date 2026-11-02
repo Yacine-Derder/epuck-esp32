@@ -142,5 +142,8 @@ const char *mulRangingPlanDecodeError(const uint8_t in[MUL_PLAN_BYTES],mulRangin
 }
 bool mulRangingPlanDecode(const uint8_t in[MUL_PLAN_BYTES],mulRangingPlan_t *out){return !mulRangingPlanDecodeError(in,out);}
 uint32_t mulRangingPlanFingerprint(const mulRangingPlan_t *p) {
- uint8_t b[MUL_PLAN_BYTES];return mulRangingPlanEncode(b,p)?get(b+60,4):0;
+ uint8_t b[MUL_PLAN_BYTES];if(!mulRangingPlanEncode(b,p))return 0;
+ // Hash semantic payload, not the CRC codeword embedded at schedule[28..31].
+ // Keep both stored CRCs unchanged: existing EEPROM remains readable/verifiable.
+ memset(b+32,0,4);return mulScheduleCrc(b,60);
 }
