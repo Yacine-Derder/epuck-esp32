@@ -1091,3 +1091,16 @@ operator capture; no firmware baud/queue changes were made here. See the
 [canonical TDMA guide](https://github.com/Yacine-Derder/lps-node-firmware/blob/master/docs/mul_tdma.md)
 for ALR/RLR build, configuration and hardware acceptance commands. No ESP32
 reflashing or live configuration changes are needed for transport compatibility.
+
+### Reference-recovery replay compatibility
+
+The host baseline validator accepts both its original clock-source hash and the
+pinned recovery core from LPS `df823d3`. Recovery changes only observation/session
+handling: `mulClockMapStatus` and every subsequent conversion function are byte
+identical to the original source. Historical replay still uses the logged rate;
+it does not re-estimate the reference clock. All other source hashes remain
+strict, and a regression deliberately altering stale-mapping rejection confirms
+that unknown conversion code is still refused. This is a host validation update;
+no bridge transport/decoding or ESP32 firmware change is required. Run
+`python3 -m unittest discover -s tests` and
+`python3 tools/verify_tdoa_replay.py --kalman --tdma` with the matching STM32 checkout.

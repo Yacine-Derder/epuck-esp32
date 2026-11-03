@@ -58,6 +58,20 @@ class Replay(unittest.TestCase):
         self.assertTrue(any(r['expected']['tdoa_dtu']<0 and r['expected']['status']==4 for r in rows))
         self.assertTrue(any(r['relation']['delay_dtu']>0 for r in rows))
 
+    def test_unknown_mapping_source_still_fails_closed(self):
+        import shutil
+        with tempfile.TemporaryDirectory() as directory:
+            checkout=Path(directory)
+            core=checkout/'ThirdParty/mul_core'
+            shutil.copytree(STM/'ThirdParty/mul_core',core)
+            source=core/'mul_clock.c'
+            text=source.read_text()
+            self.assertIn('return mulClockMapStale;',text)
+            source.write_text(text.replace('return mulClockMapStale;', 'return mulClockMapValid;'))
+            recording=checkout/'capture.jsonl';recording.write_text('')
+            with self.assertRaisesRegex(ValueError,'unsupported baseline conversion source: mul_clock.c'):
+                validate(recording,checkout)
+
     def test_rf5_fingerprint_is_not_storage_crc_and_legacy_remains_readable(self):
         rows=[json.loads(line) for line in self.project(self.lines).splitlines()]
         row=next(r for r in rows if r.get('type')=='tdoa_replay')
