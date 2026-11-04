@@ -1104,3 +1104,36 @@ that unknown conversion code is still refused. This is a host validation update;
 no bridge transport/decoding or ESP32 firmware change is required. Run
 `python3 -m unittest discover -s tests` and
 `python3 tools/verify_tdoa_replay.py --kalman --tdma` with the matching STM32 checkout.
+
+### Codec6 follower TWR plans
+
+The host replay decoder understands codec6's explicit FF bit and fingerprint:
+it folds the actual ordered AA/FF/AR triples after the semantic plan CRC. With
+ALRs `[132,134,133,135]`, RLR `[141]`,100ms/slot5/Kalman10/reply5/window30 and
+all three classes enabled, the fingerprint is **EC2B4B2A**. Codec2..5 and historical
+replay-schema1/2 interpretation remain unchanged. Use matching updated LPS and
+STM32 firmware and these host tools; no ESP32 firmware or transport change is
+needed. The ESP's optional embedded estimator does not consume this new range
+interface and was not extended for this task.
+
+```sh
+python3 tools/verify_tdoa_replay.py --kalman --ff
+```
+
+This offline fixture sends45 four-ALR100ms cycles through actual STM32 production
+snapshot code, the existing ESP owner/framing/queues, TCP reconnect and the compact
+collector. All135 TDoA/vector comparisons match production C exactly, with zero
+transport gaps in this accelerated fixture. This is not a115200-baud sustained
+throughput or physical10Hz result. Separate four-ALR tests with AR on/off also
+replay135 snapshots exactly. Existing paced UART tests retain explicit loss
+accounting; record real drops rather than infer success from a sparse capture.
+
+For future two-stage PC localization, obtain the six inter-ALR TWR edges from
+ALR serial `MR1` records using the [range exporter and metadata contract](../../lps-node-firmware/docs/mul_tdma.md#opt-in-complete-follower-graph-codec6).
+They contain acquisition time in the emitting radio's local40-bit DW1000 clock,
+boot-local epoch, capture-session context, pair/cycle, status, power flag and plan
+fingerprint. Serial arrival time is not acquisition time. Stage A uses only AA/FF
+geometry; Stage B uses RLR downlink TDoA against that geometry. AR remains optional
+diagnostics. No complete PC solver, ALR network stack or new Wi-Fi message type is
+introduced here. Wi-Fi forwarding of ALR ranges is future integration work;
+existing RLR Wi-Fi telemetry continues unchanged.

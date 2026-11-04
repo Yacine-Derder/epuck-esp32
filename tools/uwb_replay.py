@@ -50,6 +50,25 @@ class Reader:
         return {key: self.num(n, signed) for key, n, signed in spec}
 
 
+def semantic_plan_fingerprint(configuration):
+    semantic=bytearray(configuration[:60]);semantic[32:36]=bytes(4)
+    value=binascii.crc32(semantic)
+    if configuration[0]==6:
+        import itertools
+        flags=configuration[1];schedule=configuration[4:36]
+        ids=list(schedule[12:12+schedule[2]])
+        rlrs=list(configuration[37:37+configuration[36]])
+        if flags & ~7 or not flags & 4 or configuration[50]!=2 or len(ids)<3:
+            raise ValueError('invalid FF plan version/flags')
+        followers=sorted(ids[1:])
+        pairs=([(1,ids[0],j) for j in followers] if flags&1 else [])
+        pairs += [(4,i,j) for i,j in itertools.combinations(followers,2)]
+        if flags&2:pairs += [(2,i,j) for i in sorted(ids) for j in sorted(rlrs)]
+        for triple in pairs:
+            value=binascii.crc32(value.to_bytes(4,'little')+bytes(triple))
+    return value
+
+
 def snapshot(blob, node):
     if len(blob) != SIZE or blob[0] not in (1, 2, 3):
         raise ValueError('replay snapshot size/version')
@@ -124,8 +143,7 @@ def snapshot(blob, node):
         raise ValueError('replay reserved result')
     fingerprint=configuration[60:64] if planned else schedule[28:32]
     if planned and version>=3:
-        semantic=bytearray(configuration[:60]);semantic[32:36]=bytes(4)
-        fingerprint=binascii.crc32(semantic).to_bytes(4,'little')
+        fingerprint=semantic_plan_fingerprint(configuration).to_bytes(4,'little')
     return dict(replay_schema=version, calculation_revision='506913dc676d0a3c0d43c48977ef11be2085aa34', source_version=source_version, cycle=cycle, pair_slot=slot, reference_node=ids[0], follower_node=ids[slot],
                 alr_ids=ids, seen_mask=seen, complete=bool(seen & 1 and seen & (1 << slot)),
                 cycle_start_ms=start, evaluation_ms=now, stationary=bool(stationary), planned=bool(planned),

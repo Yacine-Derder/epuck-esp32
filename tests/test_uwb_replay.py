@@ -102,6 +102,27 @@ class Replay(unittest.TestCase):
         self.assertTrue(result['passed'] and result['replay_complete'],result['mismatches'])
         self.assertEqual(result['exact_dtu_matches'],45)
 
+    def test_ff_codec6_four_alrs_and_inter_alr_only_keep_exact_tdma_replay(self):
+        from uwb_replay import semantic_plan_fingerprint
+        for ar_off in (False,True):
+            exe=self.path/('ff-off' if ar_off else 'ff');trace=self.path/('ff-off.uart' if ar_off else 'ff.uart')
+            subprocess.run(['python3',str(STM/'tools/build_replay_host.py'),'--fixture','--sanitize','--output',str(exe)],check=True)
+            options=dict(MUL_REPLAY_FF='1',MUL_REPLAY_KALMAN='1',MUL_REPLAY_TRACE=str(trace))
+            if ar_off:options['MUL_REPLAY_AR_OFF']='1'
+            subprocess.run([str(exe)],env=dict(os.environ,**options),check=True,stdout=subprocess.DEVNULL)
+            text=self.project(trace.read_text().splitlines());rows=list(map(json.loads,text.splitlines()))
+            snapshots=[r for r in rows if r.get('type')=='tdoa_replay']
+            self.assertEqual(len(snapshots),135)
+            self.assertTrue(all(r['alr_ids']==[132,134,133,135] and r['cycle_ms']==100 for r in snapshots))
+            wire=bytes.fromhex(snapshots[0]['configuration_wire']);self.assertEqual(wire[0],6)
+            self.assertEqual(snapshots[0]['schedule_fingerprint'],f'{semantic_plan_fingerprint(wire):08X}')
+            if not ar_off:self.assertEqual(snapshots[0]['schedule_fingerprint'],'EC2B4B2A')
+            recording=self.path/('ff-off.jsonl' if ar_off else 'ff.jsonl');recording.write_text(text)
+            result=validate(recording,STM,sanitize=True)
+            self.assertTrue(result['passed'] and result['replay_complete'],result)
+            self.assertEqual(result['exact_dtu_matches'],135)
+            self.assertEqual(result['vector_comparisons'],135)
+
     def test_disabled_instrumentation_preserves_outputs(self):
         exe=self.path/'disabled';trace=self.path/'disabled.uart'
         subprocess.run(['python3',str(STM/'tools/build_replay_host.py'),'--fixture','--disabled','--sanitize','--output',str(exe)],check=True)

@@ -17,19 +17,19 @@ from validate_tdoa_replay import validate
 ROOT = Path(__file__).resolve().parents[1]
 
 
-async def verify(stm32, paced=False, kalman=False, tdma=False):
+async def verify(stm32, paced=False, kalman=False, tdma=False, ff=False):
     with tempfile.TemporaryDirectory() as directory:
         work = Path(directory)
         fixture, uart, bridge = work/'stm', work/'trace.uart', work/'bridge'
         subprocess.run(['python3', str(stm32/'tools/build_replay_host.py'), '--transport' if paced else '--fixture', '--sanitize', '--output', str(fixture)], check=True)
-        subprocess.run([str(fixture)], env=dict(os.environ, MUL_REPLAY_TRACE=str(uart), **({"MUL_REPLAY_KALMAN":"1"} if kalman else {}), **({"MUL_REPLAY_TDMA":"1"} if tdma else {})), check=True)
+        subprocess.run([str(fixture)], env=dict(os.environ, MUL_REPLAY_TRACE=str(uart), **({"MUL_REPLAY_KALMAN":"1"} if kalman else {}), **({"MUL_REPLAY_TDMA":"1"} if tdma else {}), **({"MUL_REPLAY_FF":"1"} if ff else {})), check=True)
         lines = uart.read_text().splitlines()
         chosen = lines
         assert len(chosen) <= 4095
         uart.write_text('\n'.join(chosen)+'\n')
         sources = ['tests/fixtures/bridge_e2e.c', 'main/bridge_protocol.c', 'main/app_ekf.c', 'main/ekf_service.c']
         sources += ['ThirdParty/mul_core/'+name+'.c' for name in ('mul_ekf', 'mul_ekf_stream', 'mul_pose', 'mul_schedule', 'mul_common', 'mul_telemetry')]
-        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function', '-Wno-misleading-indentation', '-Wno-return-type', '-DBRIDGE_HOST_TEST', '-DBRIDGE_E2E_RECORDS=4096', '-DBRIDGE_E2E_STEP_NS=1000000' if paced or tdma else '-DBRIDGE_E2E_STEP_NS=10000000', '-Itests', '-Imain', '-IThirdParty/mul_core', *sources, '-lm', '-o', str(bridge)], cwd=ROOT, check=True)
+        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-Wno-unused-function', '-Wno-misleading-indentation', '-Wno-return-type', '-DBRIDGE_HOST_TEST', '-DBRIDGE_E2E_RECORDS=4096', '-DBRIDGE_E2E_STEP_NS=1000000' if paced or tdma or ff else '-DBRIDGE_E2E_STEP_NS=10000000', '-Itests', '-Imain', '-IThirdParty/mul_core', *sources, '-lm', '-o', str(bridge)], cwd=ROOT, check=True)
         process = subprocess.Popen([str(bridge), str(uart)], stdout=subprocess.PIPE, text=True)
         stop, output = asyncio.Event(), io.StringIO()
         port = int(process.stdout.readline())
@@ -68,7 +68,7 @@ async def verify(stm32, paced=False, kalman=False, tdma=False):
             assert result['reconstructible_pairs']==140 and result['vector_comparisons']==140,result
         else:
             assert result['passed'] and result['replay_complete'], result
-            expected=90 if tdma else 45
+            expected=135 if ff else 90 if tdma else 45
             assert result['reconstructible_pairs']==expected and result['vector_comparisons']==expected, result
         rows = [json.loads(line) for line in output.getvalue().splitlines()]
         assert len([r for r in rows if r.get('state')=='connected']) >= 2
@@ -82,8 +82,9 @@ if __name__ == '__main__':
     ap.add_argument('--stm32', type=Path, default=ROOT.parent/'epuck-stm32')
     ap.add_argument('--paced', action='store_true', help='200s virtual capture, offline startup, AA bursts, 27ms UART and TCP reconnect')
     ap.add_argument('--tdma', action='store_true', help='Three ALRs, codec5, 5ms slots /200ms cycle (unpaced fixture)')
+    ap.add_argument('--ff', action='store_true', help='Four ALRs, codec6, 100ms/reply5/window30 (unpaced fixture)')
     ap.add_argument('--kalman', action='store_true', help='Select persisted Kalman in STM fixture before simulated RF ON')
     args=ap.parse_args()
-    if args.paced and args.tdma:
-        ap.error("--tdma uses the three-ALR unpaced fixture; --paced tests legacy UART stress")
-    asyncio.run(verify(args.stm32,args.paced,args.kalman,args.tdma))
+    if args.paced and (args.tdma or args.ff):
+        ap.error("--tdma/--ff use unpaced fixtures; --paced tests legacy UART stress")
+    asyncio.run(verify(args.stm32,args.paced,args.kalman,args.tdma,args.ff))
