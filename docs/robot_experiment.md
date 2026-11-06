@@ -1,5 +1,7 @@
 # Simple Wi-Fi motor control and combined acquisition
 
+> Current experimental firmware defaults to **921600 baud**. Build and flash both matching endpoints using [the UART upgrade guide](https://github.com/Yacine-Derder/epuck-stm32/blob/main/docs/uart_921600.md); it includes DMA, queue fixes and preserved 115200 rollback hashes.
+
 Use the STM32 **RobotExperiment** image for UWB + motors + DATA2. The original
 Universal image remains read-only. The ESP32 keeps one TCP owner on port 3333,
 the existing session framing, UART validation and bounded queues. It has no

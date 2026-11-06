@@ -105,7 +105,7 @@ class CompactLog:
             if line.startswith('UWBSTAT '):
                 try:
                     fields = dict(part.split('=', 1) for part in line.split()[1:])
-                    counts = tuple(int(fields[k]) for k in ('dropped', 'corrupt', 'uart_errors')) + (int(fields.get('ekf_dropped', 0)),)
+                    counts = tuple(int(fields[k]) for k in ('dropped', 'corrupt', 'uart_errors')) + tuple(int(fields.get(k,0)) for k in ('ekf_dropped','sensor_dropped','control_full'))
                     if min(counts) < 0:
                         raise ValueError('negative counter')
                 except (ValueError, KeyError):
@@ -114,6 +114,7 @@ class CompactLog:
                 if counts != self.bridge_counts and (any(counts) or self.bridge_counts is not None):
                     self.write(dict(type='transport', t=t, capture=self.capture,
                                     bridge_dropped=counts[0], corrupt=counts[1], uart_errors=counts[2], ekf_dropped=counts[3],
+                                    **{k:int(fields[k]) for k in ('sensor_dropped','control_full','rx_bytes','tcp_bytes','baud') if k in fields},
                                     reset=self.bridge_counts is not None and any(a < b for a, b in zip(counts, self.bridge_counts))))
                 self.bridge_counts = counts
             elif line.startswith(('EKF1 ', 'EKF ERR ')):

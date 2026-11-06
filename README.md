@@ -1,3 +1,5 @@
+> Experimental UART1 now defaults to **921600 baud** and requires a matching STM32 image. See the [upgrade, validation and rollback procedure](https://github.com/Yacine-Derder/epuck-stm32/blob/main/docs/uart_921600.md).
+
 > For simultaneous UWB, direct M/STOP and 10 Hz raw steps, use the
 > [robot experiment guide](docs/robot_experiment.md). Clients now default to no
 > external heartbeat; the legacy protocol sections below describe original

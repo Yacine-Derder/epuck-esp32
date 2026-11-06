@@ -263,7 +263,7 @@ static void transport_task(void *argument)
       }
     }
     uint8_t bytes[256];
-    int n=0;
+    int n=0;unsigned records_since_drain=0;
     /* At100Hz a tick is10ms, not1ms: drain up to2048B per tick, above
      *921600baud's922B/tick. Service TCP between chunks to avoid burst overflow. */
     for(unsigned received=0;received<BRIDGE_RX_BATCH_BYTES;received+=sizeof(bytes)) {
@@ -277,7 +277,12 @@ static void transport_task(void *argument)
         if(parsed<0) {
           disconnect_client(uart_parser.length>=BRIDGE_LINE-2U?"uart_oversized_record":"uart_malformed_record",(int)uart_parser.length);
           memset(&uart_parser,0,sizeof(uart_parser));
-        } else if(parsed>0)uart_record(uart_parser.data);
+        } else if(parsed>0) {
+          uart_record(uart_parser.data);
+          /* Short LOG/reply records can outnumber slots in a single256B
+           * chunk. Give TCP bounded service before that burst fills queues. */
+          if(++records_since_drain==4U){drain_tcp(now_ms());records_since_drain=0;}
+        }
       }
       drain_tcp(now_ms());
       if(n<(int)sizeof(bytes))break;

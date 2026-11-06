@@ -10,4 +10,7 @@ cc -std=c11 -Wall -Wextra -Werror -fsanitize=address,undefined \
 cc -std=c11 -Wall -Wextra -Werror -Wno-misleading-indentation -fsanitize=address,undefined \
  -DBRIDGE_HOST_TEST -Itests -Imain -IThirdParty/mul_core main/bridge_protocol.c ThirdParty/mul_core/mul_telemetry.c main/app_ekf.c main/ekf_service.c ThirdParty/mul_core/mul_ekf.c ThirdParty/mul_core/mul_ekf_stream.c ThirdParty/mul_core/mul_pose.c ThirdParty/mul_core/mul_schedule.c ThirdParty/mul_core/mul_common.c tests/test_transport.c -lm -o "$test_dir/transport"
 "$test_dir/transport"
+cc -std=c11 -Wall -Wextra -Werror -Wno-misleading-indentation -fsanitize=address,undefined \
+ -DBRIDGE_HOST_TEST -Itests -Imain -IThirdParty/mul_core main/bridge_protocol.c ThirdParty/mul_core/mul_telemetry.c main/app_ekf.c main/ekf_service.c ThirdParty/mul_core/mul_ekf.c ThirdParty/mul_core/mul_ekf_stream.c ThirdParty/mul_core/mul_pose.c ThirdParty/mul_core/mul_schedule.c ThirdParty/mul_core/mul_common.c tests/test_high_rate.c -lm -o "$test_dir/high_rate"
+"$test_dir/high_rate"
 PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -v

@@ -293,6 +293,20 @@ int main(void) {
  assert(recv(competitor,busy_notice,sizeof(busy_notice)-1,0)>0 && strstr(busy_notice,"controller_busy"));
  assert(client>=0 && ready);close(competitor);close(listener);listener=-1;
  disconnect_client("test_cleanup",0);close(peer);
+ /* Reproduce short diagnostic/ACK bursts through the real UART parser with
+  * a fast PC. These used to fill tcp_out despite no socket backpressure. */
+ peer=attach("123456789abcdef0");char burst[2048]={0};
+ for(unsigned i=0;i<20;i++)strcat(burst,"LOG diagnostic\n");
+ for(unsigned i=0;i<20;i++)strcat(burst,"RSP 123456789abcdef0 OK\n");
+ mock_input=burst;mock_connected=wifi_bit=1;last_telemetry_stats=mock_time;
+ listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
+ uint32_t before_drops=telemetry_drops;owner_once();assert(client>=0 && !mock_input && telemetry_drops==before_drops);
+ char burst_output[2048]={0};int got=(int)recv(peer,burst_output,sizeof(burst_output)-1,MSG_DONTWAIT);assert(got>0);
+ unsigned log_count=0,ack_count=0;for(char *p=burst_output;(p=strstr(p,"LOG diagnostic\n"));p+=15)log_count++;
+ for(char *p=burst_output;(p=strstr(p,"OK\n"));p+=3)ack_count++;
+ assert(log_count==20 && ack_count==20 && !tcp_out.count && !telemetry_out.count);
+ disconnect_client("test_cleanup",0);close(peer);close(listener);listener=-1;
  reason_tests();uwb_telemetry_tests();priority_tests();ekf_transport_tests();
  puts("PASS: disconnect diagnostics, nonblocking notification, real transport session filtering, control/output overflow, slow-client loss, Wi-Fi/UART faults and nonblocking partial writes");
+ return 0;
 }
