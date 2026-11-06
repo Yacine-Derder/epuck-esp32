@@ -25,7 +25,7 @@ class ClientTests(unittest.TestCase):
         stop, done, ready = threading.Event(), threading.Event(), threading.Event()
         commands, state = queue.Queue(32), client.ClientState()
         worker = threading.Thread(target=client.run_network, args=(local, commands, stop, done),
-            kwargs={"ready_event": ready, "on_record": state.receive, "on_disconnect": state.disconnected})
+            kwargs={"legacy_heartbeat": True, "ready_event": ready, "on_record": state.receive, "on_disconnect": state.disconnected})
         worker.start()
         seen = bytearray()
         try:
@@ -68,7 +68,7 @@ class ClientTests(unittest.TestCase):
         peer.settimeout(1)
         commands = queue.Queue(32)
         stop, done = threading.Event(), threading.Event()
-        worker = threading.Thread(target=client.run_network, args=(local, commands, stop, done))
+        worker = threading.Thread(target=client.run_network, args=(local, commands, stop, done), kwargs={"legacy_heartbeat": True})
         worker.start()
         peer.sendall(b"SESSION 0123456789abcdef RE")
         peer.sendall(b"ADY\nDATA 1 0 0\n")
@@ -101,7 +101,7 @@ class ClientTests(unittest.TestCase):
         with patch("builtins.print"):
             worker = threading.Thread(target=client.run_network,
                 args=(PartialSocket(local), commands, stop, done),
-                kwargs={"ready_event": ready, "handshake_timeout": .8})
+                kwargs={"legacy_heartbeat": True, "ready_event": ready, "handshake_timeout": .8})
             worker.start()
             peer.sendall(b"LOG SESSION 0123456789abcdef READY\nSESSION 0123456789abcdef RE")
             with self.assertRaises(socket.timeout): peer.recv(100)

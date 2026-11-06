@@ -88,7 +88,7 @@ class ClientState:
 
     def disconnected(self, reason):
         with self.lock:
-            self.status = "Disconnected; explicit reconnect and ARM required"
+            self.status = "Disconnected; reconnect and send a fresh M"
             self.disconnect_reason = reason
             duplicate = bool(self.events and self.events[-1][1] == reason)
         if not duplicate:
@@ -132,7 +132,7 @@ def validate(command):
 
 
 def run_network(sock, commands, stop, done, logs=False, *, handshake_timeout=1.0, ready_event=None,
-                verbose=False, on_record=None, on_disconnect=None):
+                verbose=False, on_record=None, on_disconnect=None, legacy_heartbeat=False):
     """Sole socket writer/closer; stdin only submits bounded queue entries."""
     def emit(text):
         # The production sink only updates bounded memory, never renders or writes IO.
@@ -174,7 +174,7 @@ def run_network(sock, commands, stop, done, logs=False, *, handshake_timeout=1.0
                     if not stop_started:
                         pending = b"STOP\n"
                         stop_started = True
-                elif now >= heartbeat:
+                elif legacy_heartbeat and now >= heartbeat:
                     pending = b"CONTROL_HB\n"
                     heartbeat = now + 0.1
                 else:
@@ -187,7 +187,7 @@ def run_network(sock, commands, stop, done, logs=False, *, handshake_timeout=1.0
             if readable:
                 chunk = sock.recv(1024)
                 if not chunk:
-                    reason = "Disconnected; explicit reconnect and ARM required."
+                    reason = "Disconnected; reconnect and send a fresh M. If immediate: port 3333 may be owned by another collector/ROS/client."
                     emit(reason)
                     break
                 received.extend(chunk)
@@ -321,6 +321,7 @@ def use_terminal_ui(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("ip")
+    parser.add_argument("--legacy-heartbeat", action="store_true", help="Use only with original Universal firmware")
     parser.add_argument("--port", type=int, default=3333)
     parser.add_argument("--logs", action="store_true", help="Show optional LOG records")
     parser.add_argument("--verbose", action="store_true", help="Also display routine motor heartbeat acknowledgements")
@@ -351,7 +352,7 @@ def main():
         return 1
     worker = threading.Thread(target=run_network, args=(sock, commands, stop, done),
                               kwargs={"ready_event": ready, "on_record": state.receive,
-                                      "on_disconnect": state.disconnected}, daemon=True)
+                                      "on_disconnect": state.disconnected, "legacy_heartbeat": args.legacy_heartbeat}, daemon=True)
     worker.start()
     state.event("Connected. Speeds are commanded steps/s, not measured wheel speed. HELP lists commands. Ctrl-C/EOF exits.")
     try:

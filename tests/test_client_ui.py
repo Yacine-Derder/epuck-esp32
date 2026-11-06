@@ -130,7 +130,7 @@ class NetworkUIBase(unittest.TestCase):
         self.stop, self.done, self.ready = threading.Event(), threading.Event(), threading.Event()
         self.worker = threading.Thread(target=client.run_network,
             args=(local, self.commands, self.stop, self.done),
-            kwargs={"on_record": state.receive, "on_disconnect": state.disconnected,
+            kwargs={"legacy_heartbeat": True, "on_record": state.receive, "on_disconnect": state.disconnected,
                     "ready_event": self.ready, "handshake_timeout": timeout})
         self.worker.start()
         self.addCleanup(self.cleanup_network)
@@ -168,7 +168,7 @@ class PlainTests(NetworkUIBase):
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0)); listener.listen(1); listener.settimeout(2)
         process = subprocess.Popen([sys.executable, str(ROOT / "tools/wifi_client.py"),
-            "127.0.0.1", "--port", str(listener.getsockname()[1]), "--verbose", "--logs"] + flags,
+            "127.0.0.1", "--port", str(listener.getsockname()[1]), "--verbose", "--logs", "--legacy-heartbeat"] + flags,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         try:
             peer, _ = listener.accept()

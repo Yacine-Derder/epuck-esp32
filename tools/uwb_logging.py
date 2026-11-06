@@ -36,6 +36,8 @@ class CompactLog:
         self.replay = Reassembly()
         self.counter = 0
         self.bridge_counts = None
+        self.connection=0;self.transport_session=""
+        self.steps_previous=None
         self.write(dict(type='capture', schema=1, capture=self.capture, endpoint=endpoint,
                         measurement_source='stm32_onboard', host_time='UTC reception',
                         measurement_time='receiver u_ms; wraps uint32', uncertainty='unknown',
@@ -68,6 +70,7 @@ class CompactLog:
         kind = row['kind']
         t = row['host_received_utc']
         if kind in ('connected', 'disconnected'):
+            self.connection=row['connections'];self.steps_previous=None
             fields = dict(type='connection', capture=self.capture, t=t,
                           state=kind, connections=row['connections'])
             if kind == 'disconnected':
@@ -80,6 +83,25 @@ class CompactLog:
             return
         if kind == 'bridge':
             line = row['line']
+            if line.startswith('SESSION ') and line.endswith(' READY'):
+                self.transport_session=line.split()[1]
+            if line.startswith('DATA2 '):
+                try:
+                    try:from wifi_client import parse_data
+                    except ModuleNotFoundError:from tools.wifi_client import parse_data
+                    sample=parse_data(line)
+                except ValueError as error:
+                    self.write(dict(type='error',t=t,capture=self.capture,reason=str(error),raw=line));return
+                previous=self.steps_previous;delta=(sample.sequence-previous)&0xffffffff if previous is not None else None
+                self.steps_previous=sample.sequence
+                self.write(dict(type='steps',t=t,capture=self.capture,connection=self.connection,transport_session=self.transport_session,
+                    host_monotonic_ns=row['host_monotonic_ns'],stm32_sequence=sample.sequence,sample_age_ms=sample.reported_age_ms,
+                    source_time_ms=sample.epuck_time_ms,left=sample.commanded_steps[0],right=sample.commanded_steps[1],
+                    stale=sample.reported_age_ms>300,discontinuity=delta is None or delta==0 or delta>=2**31,
+                    missing_samples=delta-1 if delta is not None and 0<delta<2**31 else None,
+                    source_time_modulus=65536,producer_counter_width=None,raw=line));return
+            if line.startswith('[MOTOR]'):
+                self.write(dict(type='motor_status',t=t,capture=self.capture,connection=self.connection,transport_session=self.transport_session,message=line));return
             if line.startswith('UWBSTAT '):
                 try:
                     fields = dict(part.split('=', 1) for part in line.split()[1:])

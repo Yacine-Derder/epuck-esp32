@@ -127,7 +127,7 @@ class Ordering:
         self.last[key]=seq
         return dict(sequence_status='forward' if delta==1 else 'gap',missing=delta-1)
 
-async def collect(endpoint,output,stop=None, *, raw=False,health_seconds=30,monitor=None,metadata=None):
+async def collect(endpoint,output,stop=None, *, raw=False,health_seconds=30,monitor=None,metadata=None,legacy_heartbeat=False):
     host,sep,port=endpoint.rpartition(':')
     if not sep:host,port=endpoint,'3333'
     order=Ordering();reconnects=0;corrupt=0;missing=0
@@ -146,11 +146,11 @@ async def collect(endpoint,output,stop=None, *, raw=False,health_seconds=30,moni
             last=time.monotonic()
             while stop is None or not stop.is_set():
                 # Read-only heartbeat; stalled workstation I/O may safely expire the session.
-                if time.monotonic()-last>=.1:
+                if legacy_heartbeat and time.monotonic()-last>=.1:
                     writer.write(b'CONTROL_HB\n');await asyncio.wait_for(writer.drain(),.2);last=time.monotonic()
                 try: raw=await asyncio.wait_for(reader.readline(),.05)
                 except asyncio.TimeoutError:continue
-                if not raw:raise ConnectionError('eof')
+                if not raw:raise ConnectionError('eof; port 3333 permits one client: close any existing collector, ROS bridge or wifi_client')
                 line=raw.decode('ascii',errors='replace').rstrip('\r\n')
                 if line.startswith(('UWB1 ','UWB2 ','UWB3 ')):
                     try:r=decode(line)
@@ -169,6 +169,7 @@ async def collect(endpoint,output,stop=None, *, raw=False,health_seconds=30,moni
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--legacy-heartbeat',action='store_true',help='Required only by original Universal firmware')
     parser.add_argument('--robot',action='append',help='HOST[:PORT], repeat for multiple robots')
     parser.add_argument('--output',type=Path,default=DEFAULT_LOG_DIR,help='JSONL directory (default: ~/Documents/uwb_logs)')
     parser.add_argument('--raw','--debug',dest='raw',action='store_true',help='Complete historical diagnostic JSONL; retain native frames/epochs')
@@ -201,7 +202,7 @@ def main():
                 suffix='raw' if args.raw else 'compact'
                 f=(args.output/f'{stamp}-robot-{i}-{suffix}.jsonl').open('x');streams.append(f)
                 print(f'Recording {suffix}: {f.name}',file=sys.stderr)
-                tasks.append(collect(robot,f,raw=args.raw,health_seconds=args.health_seconds,monitor=monitor,metadata=metadata))
+                tasks.append(collect(robot,f,raw=args.raw,health_seconds=args.health_seconds,monitor=monitor,metadata=metadata,legacy_heartbeat=args.legacy_heartbeat))
             await asyncio.gather(*tasks)
         finally:
             for f in streams:f.close()

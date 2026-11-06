@@ -155,7 +155,7 @@ class CompactLoopback(WireFixture, unittest.IsolatedAsyncioTestCase):
             writer.close();await writer.wait_closed()
             if connections==2:stop.set()
         listener=await asyncio.start_server(server,'127.0.0.1',0);output=io.StringIO()
-        try:await asyncio.wait_for(collector.collect('127.0.0.1:'+str(listener.sockets[0].getsockname()[1]),output,stop),5)
+        try:await asyncio.wait_for(collector.collect('127.0.0.1:'+str(listener.sockets[0].getsockname()[1]),output,stop,legacy_heartbeat=True),5)
         finally:listener.close();await listener.wait_closed()
         rows=[json.loads(line) for line in output.getvalue().splitlines()]
         self.assertEqual(sum(r['type']=='tdoa' for r in rows),2)

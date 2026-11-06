@@ -111,6 +111,8 @@ static void accept_client(uint32_t now)
   if (fd<0) return;
   if (client>=0) {
     ESP_LOGW(BRIDGE_TAG,"reject reason=controller_busy session=%s socket=%d",session,fd);
+    const char *busy="DISCONNECT - reason=controller_busy port=3333; close the existing collector/ROS/client first\n";
+    (void)send(fd,busy,strlen(busy),send_flags());
     close(fd); return;
   }
   if (fcntl(fd,F_SETFL,O_NONBLOCK)<0) {
