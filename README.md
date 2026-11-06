@@ -1,3 +1,8 @@
+> For simultaneous UWB, direct M/STOP and 10 Hz raw steps, use the
+> [robot experiment guide](docs/robot_experiment.md). Clients now default to no
+> external heartbeat; the legacy protocol sections below describe original
+> firmware and require `--legacy-heartbeat` with updated clients.
+
 # Wi-Fi robot link protocol
 
 Wi-Fi modem sleep is disabled and the application/second-stage bootloader

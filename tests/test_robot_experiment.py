@@ -5,6 +5,8 @@ import queue
 import socket
 import threading
 import unittest
+import tempfile
+from pathlib import Path
 from tools.wifi_client import run_network
 from tools.uwb_collect import collect
 from tools.uwb_logging import CompactLog
@@ -38,6 +40,17 @@ class Robot(unittest.TestCase):
         self.assertEqual(steps[0]['transport_session'],'0123456789abcdef')
         self.assertFalse(steps[1]['discontinuity']);self.assertTrue(steps[1]['stale']);self.assertEqual(steps[1]['missing_samples'],0)
         self.assertTrue(any(r['type']=='motor_status' for r in rows))
+
+    def test_offline_traffic_summary(self):
+        from tools.robot_bandwidth import summarize
+        with tempfile.TemporaryDirectory() as work:
+            path=Path(work)/'fixture.jsonl'
+            path.write_text('\n'.join(json.dumps(dict(kind='received',raw=DATA.replace('4294967295',str(i)),
+                received_unix=100+i*.1,capture='fixture',session='session',generation=1)) for i in range(11)))
+            result=summarize(path)
+            self.assertAlmostEqual(result['steps_hz'],10.)
+            self.assertEqual(result['counts']['missing_source_sequences'],0)
+            self.assertGreater(result['application_bytes_per_second'],0)
 
 class Collector(unittest.IsolatedAsyncioTestCase):
     async def test_default_collector_does_not_send_heartbeat_and_keeps_steps(self):

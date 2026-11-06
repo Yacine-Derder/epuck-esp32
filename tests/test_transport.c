@@ -276,6 +276,18 @@ int main(void) {
  listener=socket(AF_INET,SOCK_STREAM,0); assert(listener>=0); assert(fcntl(listener,F_SETFL,O_NONBLOCK)==0);
  if(!setjmp(stop_loop)) transport_task(NULL);
  assert(client==-1 && uart_out.count==1); close(peer); close(listener); listener=-1;
+ /* A competing loopback TCP client gets a reason; the active owner survives. */
+ peer=attach("123456789abcdef0");
+ listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);
+ struct sockaddr_in address={.sin_family=AF_INET,.sin_port=0,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+ assert(bind(listener,(struct sockaddr *)&address,sizeof(address))==0 && listen(listener,1)==0);
+ socklen_t address_length=sizeof(address);assert(getsockname(listener,(struct sockaddr *)&address,&address_length)==0);
+ int competitor=socket(AF_INET,SOCK_STREAM,0);assert(competitor>=0);
+ assert(connect(competitor,(struct sockaddr *)&address,sizeof(address))==0);
+ accept_client(now_ms());char busy_notice[200]={0};
+ assert(recv(competitor,busy_notice,sizeof(busy_notice)-1,0)>0 && strstr(busy_notice,"controller_busy"));
+ assert(client>=0 && ready);close(competitor);close(listener);listener=-1;
+ disconnect_client("test_cleanup",0);close(peer);
  reason_tests();uwb_telemetry_tests();priority_tests();ekf_transport_tests();
  puts("PASS: disconnect diagnostics, nonblocking notification, real transport session filtering, control/output overflow, slow-client loss, Wi-Fi/UART faults and nonblocking partial writes");
 }
