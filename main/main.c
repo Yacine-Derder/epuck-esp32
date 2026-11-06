@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <inttypes.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/socket.h>
@@ -18,6 +19,7 @@
 #include "esp_netif.h"
 #include "nvs_flash.h"
 #include "bridge_transport.h"
+#include "bridge_config.h"
 
 #define WIFI_SSID       "disal-robots"
 #define WIFI_PASS       "dis@l1234"
@@ -101,15 +103,15 @@ static void wifi_init_sta(void)
 static void uart_init(void)
 {
     uart_config_t uart_config = {
-        .baud_rate = 115200,
+        .baud_rate = BRIDGE_UART_BAUD,
         .data_bits = UART_DATA_8_BITS,
         .parity = UART_PARITY_DISABLE,
         .stop_bits = UART_STOP_BITS_1,
         .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-        .source_clk = UART_SCLK_DEFAULT,
+        .source_clk = UART_SCLK_XTAL,
     };
 
-    ESP_ERROR_CHECK(uart_driver_install(UART_PORT, UART_BUF_SIZE * 2, 0, 16, &uart_events, 0));
+    ESP_ERROR_CHECK(uart_driver_install(UART_PORT, UART_BUF_SIZE * 2, 0, BRIDGE_UART_EVENTS, &uart_events, 0));
     ESP_ERROR_CHECK(uart_param_config(UART_PORT, &uart_config));
     ESP_ERROR_CHECK(uart_set_pin(UART_PORT,
                                  UART_TX_PIN,
@@ -117,7 +119,11 @@ static void uart_init(void)
                                  UART_PIN_NO_CHANGE,
                                  UART_PIN_NO_CHANGE));
 
-    ESP_LOGI(TAG, "UART ready on TX=%d RX=%d", UART_TX_PIN, UART_RX_PIN);
+    ESP_ERROR_CHECK(uart_set_rx_full_threshold(UART_PORT,64));
+    ESP_ERROR_CHECK(uart_set_rx_timeout(UART_PORT,2));
+    uint32_t actual_baud=0;
+    ESP_ERROR_CHECK(uart_get_baudrate(UART_PORT,&actual_baud));
+    ESP_LOGI(TAG,"UART1 8N1 XTAL40MHz requested=%u divider_readback=%" PRIu32 " TX=%d RX=%d",BRIDGE_UART_BAUD,actual_baud,UART_TX_PIN,UART_RX_PIN);
 }
 
 static void led_init(void)

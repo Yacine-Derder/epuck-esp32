@@ -1,6 +1,7 @@
 #include "app_ekf.h"
 #include "bridge_transport.h"
 #include "bridge_protocol.h"
+#include "bridge_config.h"
 #include "mul_telemetry.h"
 #include "tdoa_replay_wire.h"
 #ifndef BRIDGE_HOST_TEST
@@ -29,7 +30,10 @@ static EventBits_t wifi_bit;
 static QueueHandle_t uart_events;
 static int uart_port, led_gpio, listener=-1, client=-1;
 static bridge_parser_t tcp_parser, uart_parser;
-static bridge_queue_t uart_out, tcp_out, telemetry_out;
+static bridge_queue_t uart_out, tcp_out, telemetry_out, sensor_out;
+static uint32_t sensor_drops, log_records, tcp_bytes_sent, uart_bytes_received, tcp_control_full;
+static unsigned tcp_uwb_streak;
+static void drain_tcp(uint32_t now);
 static uint32_t telemetry_at[BRIDGE_SLOTS],telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_high,last_telemetry_stats;
 static unsigned char telemetry_essential[BRIDGE_SLOTS];
 static char session[17];
@@ -64,13 +68,14 @@ static void disconnect_client(const char *reason, int detail)
   /* One nonblocking attempt only. Do not splice a notice into a partially
    * transmitted record, drain queues, wait for ACKs or defer STOP/CLOSE.
    */
-  if (tcp_out.offset==0U && telemetry_out.offset==0U) {
+  if (tcp_out.offset==0U && telemetry_out.offset==0U && sensor_out.offset==0U) {
     char notice[384];
     int n=snprintf(notice,sizeof(notice),"DISCONNECT %s reason=%s detail=%d stm=%s\n",
                    session,reason,detail,stm_diagnostic[0]?stm_diagnostic:"-");
     if (n>0 && n<(int)sizeof(notice)) (void)send(client,notice,(size_t)n,send_flags());
   }
   close(client); client=-1; ready=0;
+  sensor_drops+=sensor_out.count;memset(&sensor_out,0,sizeof(sensor_out));tcp_uwb_streak=0;
   telemetry_drops+=telemetry_out.count;memset(&telemetry_out,0,sizeof(telemetry_out));
   memset(&tcp_out,0,sizeof(tcp_out)); memset(&tcp_parser,0,sizeof(tcp_parser));
   /* Cancel unsent old movement and delimit any UART line partly written.
@@ -122,6 +127,7 @@ static void accept_client(uint32_t now)
   client=fd; ready=0; opened_at=last_progress=now;
   app_ekf_reset(++ekf_generation);
   snprintf(session,sizeof(session),"%08" PRIx32 "%08" PRIx32,esp_random(),esp_random());
+  sensor_drops+=sensor_out.count;memset(&sensor_out,0,sizeof(sensor_out));tcp_uwb_streak=0;
   telemetry_drops+=telemetry_out.count;memset(&telemetry_out,0,sizeof(telemetry_out));
   memset(&tcp_out,0,sizeof(tcp_out)); memset(&tcp_parser,0,sizeof(tcp_parser));
   stm_diagnostic[0]=0;
@@ -185,8 +191,17 @@ static void uart_record(const char *line)
   } else if (strncmp(line,"RSP ",4U)==0) {
     if (!bridge_reply_matches(line,session)) return;
     line+=21;
-  } else if (strncmp(line,"DATA ",5U)!=0 && strncmp(line,"DATA2 ",6U)!=0 && strncmp(line,"LOG ",4U)!=0) return;
-  if (!bridge_push(&tcp_out,line)) disconnect_client("tcp_tx_queue_full",0); /* Slow client cannot block RX. */
+  } else if (!strncmp(line,"DATA ",5U) || !strncmp(line,"DATA2 ",6U)) {
+    /* Observations cannot consume the reserved command-response queue. */
+    if(!bridge_push(&sensor_out,line))++sensor_drops;
+    return;
+  } else if (!strncmp(line,"LOG ",4U)) {
+    ++log_records;queue_telemetry(line,0);return;
+  } else return;
+  /* One UART read can contain more replies than slots even with a fast PC.
+   * Drain nonblocking before declaring actual output backpressure. */
+  if(tcp_out.count==BRIDGE_SLOTS)drain_tcp(now_ms());
+  if(client>=0 && !bridge_push(&tcp_out,line)) {++tcp_control_full;disconnect_client("tcp_tx_queue_full",0);} /* Slow client cannot block RX. */
 }
 static void tcp_record(const char *line)
 {
@@ -202,6 +217,33 @@ static void tcp_record(const char *line)
   snprintf(record,sizeof(record),"CMD %s %s",session,line);
   if (!bridge_push(&uart_out,record)) disconnect_client("uart_tx_queue_full",0);
 }
+/* All classes share a sole writer. A partial line always finishes first.
+ * Control wins; a waiting sensor gets a slot after at most three UWB lines. */
+static void drain_tcp(uint32_t now)
+{
+  size_t total=0;
+  for(unsigned writes=0;client>=0 && writes<BRIDGE_TCP_BATCH_WRITES && total<BRIDGE_TCP_BATCH_BYTES;writes++) {
+    bridge_queue_t *chosen=tcp_out.offset?&tcp_out:telemetry_out.offset?&telemetry_out:sensor_out.offset?&sensor_out:
+      tcp_out.count?&tcp_out:(sensor_out.count && (!telemetry_out.count || tcp_uwb_streak>=3U))?&sensor_out:
+      telemetry_out.count?&telemetry_out:&sensor_out;
+    size_t remaining;const char *front=bridge_front(chosen,&remaining);
+    if(!front){last_progress=now;break;}
+    if(remaining>BRIDGE_TCP_BATCH_BYTES-total)remaining=BRIDGE_TCP_BATCH_BYTES-total;
+    int n=send(client,front,remaining,send_flags());
+    if(n>0) {
+      unsigned before=chosen->count;bridge_advance(chosen,(size_t)n);total+=(size_t)n;tcp_bytes_sent+=(uint32_t)n;last_progress=now;
+      if(chosen->count!=before) {
+        if(chosen==&sensor_out)tcp_uwb_streak=0;
+        else if(chosen==&telemetry_out && tcp_uwb_streak<3U)++tcp_uwb_streak;
+      }
+    } else {
+      if(n==0)disconnect_client("tcp_send_zero",0);
+      else if(errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR)disconnect_client("tcp_send_error",errno);
+      else if((uint32_t)(now-last_progress)>=500U)disconnect_client("tcp_output_stalled",errno);
+      break;
+    }
+  }
+}
 static void transport_task(void *argument)
 {
   (void)argument;
@@ -212,7 +254,7 @@ static void transport_task(void *argument)
     if (connected && listener<0) listener=create_listener();
     if (connected && listener>=0) accept_client(now);
     uart_event_t event;
-    for (unsigned budget=0; budget<4 && xQueueReceive(uart_events,&event,0); ++budget) {
+    for (unsigned budget=0; budget<BRIDGE_UART_EVENTS && xQueueReceive(uart_events,&event,0); ++budget) {
       if (event.type==UART_FIFO_OVF || event.type==UART_BUFFER_FULL || event.type==UART_FRAME_ERR || event.type==UART_PARITY_ERR) {
         const char *reason=event.type==UART_FIFO_OVF?"uart_fifo_overflow":
                            event.type==UART_BUFFER_FULL?"uart_buffer_overflow":
@@ -221,18 +263,24 @@ static void transport_task(void *argument)
       }
     }
     uint8_t bytes[256];
-    int n=uart_read_bytes(uart_port,bytes,sizeof(bytes),0);
-    if (n<0) disconnect_client("uart_read_error",n);
-    if (n>0) {
-      gpio_set_level(led_gpio,1); led_until=now+50U;
-      for (int i=0;i<n;++i) {
+    int n=0;
+    /* At100Hz a tick is10ms, not1ms: drain up to2048B per tick, above
+     *921600baud's922B/tick. Service TCP between chunks to avoid burst overflow. */
+    for(unsigned received=0;received<BRIDGE_RX_BATCH_BYTES;received+=sizeof(bytes)) {
+      n=uart_read_bytes(uart_port,bytes,sizeof(bytes),0);
+      if(n<0) {disconnect_client("uart_read_error",n);break;}
+      if(n==0)break;
+      uart_bytes_received+=(uint32_t)n;
+      gpio_set_level(led_gpio,1);led_until=now+50U;
+      for(int i=0;i<n;i++) {
         int parsed=bridge_parse(&uart_parser,bytes[i],BRIDGE_LINE-2U);
-        if (parsed<0) {
+        if(parsed<0) {
           disconnect_client(uart_parser.length>=BRIDGE_LINE-2U?"uart_oversized_record":"uart_malformed_record",(int)uart_parser.length);
           memset(&uart_parser,0,sizeof(uart_parser));
-        }
-        else if (parsed>0) uart_record(uart_parser.data);
+        } else if(parsed>0)uart_record(uart_parser.data);
       }
+      drain_tcp(now_ms());
+      if(n<(int)sizeof(bytes))break;
     }
     if ((int32_t)(now-led_until)>=0) gpio_set_level(led_gpio,0);
     if (client>=0) {
@@ -271,21 +319,12 @@ static void transport_task(void *argument)
       else {telemetry_drops++;bridge_advance(&telemetry_out,telemetry_out.length[telemetry_out.tail]);}
     }
     if(client>=0&&ready&&(uint32_t)(now-last_telemetry_stats)>=1000U&&tcp_out.count<BRIDGE_SLOTS-4U) {
-      char stats[224];last_telemetry_stats=now;
-      snprintf(stats,sizeof(stats),"UWBSTAT version=1 dropped=%" PRIu32 " corrupt=%" PRIu32 " uart_errors=%" PRIu32 " depth=%u high=%" PRIu32 " ekf_dropped=%" PRIu32,
-        telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_out.count,telemetry_high,app_ekf_dropped());
+      char stats[310];last_telemetry_stats=now;
+      snprintf(stats,sizeof(stats),"UWBSTAT version=1 dropped=%" PRIu32 " corrupt=%" PRIu32 " uart_errors=%" PRIu32 " depth=%u high=%" PRIu32 " ekf_dropped=%" PRIu32 " sensor_dropped=%" PRIu32 " rx_bytes=%" PRIu32 " tcp_bytes=%" PRIu32 " control_full=%" PRIu32 " baud=%u",
+        telemetry_drops,telemetry_corrupt,telemetry_uart_errors,telemetry_out.count,telemetry_high,app_ekf_dropped(),sensor_drops,uart_bytes_received,tcp_bytes_sent,tcp_control_full,BRIDGE_UART_BAUD);
       queue_telemetry(stats,0);
     }
-    /* A partially sent line must finish before switching queue. Otherwise all
-     * safety/control replies take precedence over optional telemetry. */
-    bridge_queue_t *chosen=telemetry_out.offset?&telemetry_out:tcp_out.count?&tcp_out:&telemetry_out;
-    if (client>=0 && (front=bridge_front(chosen,&remaining))!=NULL) {
-      n=send(client,front,remaining,send_flags());
-      if (n>0) { bridge_advance(chosen,(size_t)n); last_progress=now; }
-      else if (n==0) disconnect_client("tcp_send_zero",0);
-      else if (n<0 && errno!=EAGAIN && errno!=EWOULDBLOCK && errno!=EINTR) disconnect_client("tcp_send_error",errno);
-      else if ((uint32_t)(now-last_progress)>=500U) disconnect_client("tcp_output_stalled",errno);
-    } else if (client>=0) last_progress=now;
+    drain_tcp(now_ms());
     if (client>=0 && !ready && (uint32_t)(now-opened_at)>=1000U) disconnect_client("session_handshake_timeout",0);
     vTaskDelay(1); /* No delay inside UART RX or socket writes. */
   }

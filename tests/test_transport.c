@@ -38,7 +38,7 @@ void vTaskDelay(unsigned ticks) { assert(ticks==1); longjmp(stop_loop,1); }
 static int attach(const char *id) {
  int pair[2]; assert(socketpair(AF_UNIX,SOCK_STREAM,0,pair)==0);
  client=pair[0]; assert(fcntl(client,F_SETFL,O_NONBLOCK)==0);
- strcpy(session,id); ready=1; stm_diagnostic[0]=0; opened_at=last_progress=mock_time; memset(&tcp_out,0,sizeof(tcp_out)); memset(&uart_out,0,sizeof(uart_out));
+ strcpy(session,id); ready=1; stm_diagnostic[0]=0; opened_at=last_progress=mock_time; memset(&sensor_out,0,sizeof(sensor_out));memset(&tcp_out,0,sizeof(tcp_out)); memset(&uart_out,0,sizeof(uart_out));
  return pair[1];
 }
 static void owner_once(void) {
@@ -124,11 +124,9 @@ static void priority_tests(void) {
    assert(mulTelemetryEncode(line,sizeof(line),&r));
    uint32_t drops=telemetry_drops;uart_record(line);
    assert(telemetry_out.count==BRIDGE_SLOTS&&telemetry_drops==drops+1);
-   for(unsigned i=0;i<BRIDGE_SLOTS;i++) {
-     owner_once();char output[512]={0};
-     assert(recv(peer,output,sizeof(output),MSG_DONTWAIT)==310);
-     if(i==BRIDGE_SLOTS-1)assert(!memcmp(output,line,309));
-   }
+   owner_once();char output[BRIDGE_SLOTS*310+1]={0};size_t received=0;
+   while(received<BRIDGE_SLOTS*310) {ssize_t n=recv(peer,output+received,BRIDGE_SLOTS*310-received,0);assert(n>0);received+=(size_t)n;}
+   assert(!memcmp(output+(BRIDGE_SLOTS-1)*310,line,309));
  }
  for(unsigned i=0;i<BRIDGE_SLOTS;i++)uart_record(line);
  unsigned tail=telemetry_out.tail;uint32_t drops=telemetry_drops;
@@ -243,8 +241,8 @@ int main(void) {
  for(unsigned i=0;i<20;i++) {
   char data[256]; snprintf(data,sizeof(data),"DATA %u 0 7 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -20 21",i);
   if (i%2) snprintf(data,sizeof(data),"DATA2 %u 0 7 0 0 0 0 0 0 0 0 1 2 3 -20 21",i);
-  uart_record(data); size_t n; const char *record=bridge_front(&tcp_out,&n);
-  assert(record && strncmp(record,data,strlen(data))==0); bridge_advance(&tcp_out,n);
+  uart_record(data); size_t n; const char *record=bridge_front(&sensor_out,&n);
+  assert(record && strncmp(record,data,strlen(data))==0); bridge_advance(&sensor_out,n);
   assert(client>=0 && ready);
  }
  disconnect_client("test_cleanup",0); close(stream_peer);
@@ -259,9 +257,16 @@ int main(void) {
  uart_record("RSP bbbbbbbbbbbbbbbb [MOTOR] OK ARM"); assert(tcp_out.count==1);
  assert(strncmp(tcp_out.data[tcp_out.tail],"[MOTOR] OK ARM",13)==0);
  memset(&tcp_out,0,sizeof(tcp_out));
- /* Slow TCP client: reception remains bounded, output overflow invalidates. */
+ /* Observation saturation reports loss without consuming control slots. */
+ unsigned drops_before=sensor_drops;
  for(unsigned i=0;i<=BRIDGE_SLOTS;i++) uart_record("DATA 1 0 0");
- assert(client==-1 && tcp_out.count==0 && uart_out.count==1); close(peer);
+ assert(client>=0 && !tcp_out.count && sensor_out.count==BRIDGE_SLOTS && sensor_drops==drops_before+1);
+ disconnect_client("test_cleanup",0);close(peer);
+ /* Genuine control backpressure still disconnects. Fill the socket first. */
+ peer=attach("bbbbbbbbbbbbbbbb");char blocked[1024];memset(blocked,'x',sizeof(blocked));
+ while(send(client,blocked,sizeof(blocked),send_flags())>0){}
+ for(unsigned i=0;i<=BRIDGE_SLOTS;i++)uart_record("RSP bbbbbbbbbbbbbbbb OK");
+ assert(client==-1 && !tcp_out.count && uart_out.count==1);close(peer);
  peer=attach("cccccccccccccccc"); ready=0;
  tcp_record("ARM"); assert(uart_out.count==0 && tcp_out.count==1); disconnect_client("test_cleanup",0); close(peer);
  peer=attach("dddddddddddddddd");
