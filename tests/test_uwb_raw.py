@@ -45,13 +45,20 @@ class RawTiming(unittest.TestCase):
         twr=[r['radio_observation'] for r in self.rows if r.get('radio_observation',{}).get('kind')=='twr_exchange']
         self.assertEqual(len(twr),215)
         self.assertEqual(sum(o['local_event']=='tx' for o in twr),86)
+        by_cycle_source={(o['rf_cycle'],o['source_node']):o for r in self.rows if r['type']=='multi_rx'
+            for o in [r['radio_observation']] if o['kind']=='downlink_broadcast'}
         for o in twr:
             self.assertEqual(o['exchange_stamp_clock_nodes'],[o['initiator_node'],141,141,o['initiator_node'],o['initiator_node'],141])
             self.assertEqual(len(o['power']),3)
             if o['local_event']=='tx':
                 self.assertEqual(o['local_marker_dtu'],o['tx_timestamp_dtu'])
                 self.assertEqual(o['source_clock_domain']['radio'],2)
-            else:self.assertEqual(o['source_clock_domain']['radio'],1)
+            else:
+                self.assertEqual(o['source_clock_domain']['radio'],1)
+                origin=by_cycle_source[(o['rf_cycle'],o['source_node'])]['tx_timestamp_dtu']
+                delta=((o['tx_timestamp_dtu']-origin+(1<<39))%(1<<40))-(1<<39)
+                self.assertGreater(delta,63897600)
+                self.assertLess(delta,70*63897600)
         self.assertEqual(sum(r['type']=='ar_range' for r in self.rows),43)
 
     def test_compact_retains_raw_bytes_and_projection_without_geometric_validity(self):
