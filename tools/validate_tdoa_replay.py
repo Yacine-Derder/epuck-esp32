@@ -27,8 +27,14 @@ def validate(path, stm32, sanitize=False):
     # every subsequent conversion function are byte-identical to schema1's core;
     # the 240000-observation comparison and native replay fixtures verify it.
     clock_versions = {expected['mul_clock.c'], '249852bc5a7a6af3bd4cb615bbcecbaa79b106f402cf2ea62ef0d131a5bd4a59'}
+    # Motion guard 202e455 adds explicit opt-in application policy. With that
+    # policy disabled, frozen 240000-state and native RF5 replay comparisons
+    # establish unchanged legacy conversion. Decoder validity remains separate
+    # from policy so raw old-firmware evidence survives local rejection.
+    motion_versions = {'mul_clock.c': 'edcd35ea0de3fc91521bb1f3b7b7c2dc1d2d41ef84fa3be065da77d4670dab04', 'mul_relation.c': 'b8bb79cb457f7c5940fe61f2f79dd29905fdf34faed97ec0a02df9635175e8d1'}
     for name,digest_value in expected.items():
         accepted = clock_versions if name == 'mul_clock.c' else {digest_value}
+        accepted = accepted | ({motion_versions[name]} if name in motion_versions else set())
         if hashlib.sha256((Path(stm32)/'ThirdParty/mul_core'/name).read_bytes()).hexdigest() not in accepted:
             raise ValueError('unsupported baseline conversion source: '+name)
     records, invalid, losses, incomplete, vectors = [], [], [], [], {}
