@@ -44,7 +44,9 @@ def decode_multi(data, out):
         if planned:
             marker=out['rx'];tx=bool(data[9]&16)
             out.update(direction='tx' if tx else 'rx',marker_dtu=marker,tx=marker if tx else None,rx=None if tx else marker)
-        return out
+        try:from uwb_raw import add_raw_projection
+        except ModuleNotFoundError:from tools.uwb_raw import add_raw_projection
+        return add_raw_projection(out)
     cycle, fingerprint, revision = struct.unpack_from('<III', data, 40)
     slot, period = struct.unpack_from('<HH', data, 57)
     count, seen, valid = data[61:64]

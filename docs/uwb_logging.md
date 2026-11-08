@@ -151,8 +151,8 @@ runtime delay changes. Existing compact fields retain their meaning.
 
 Other rows: `twr` has `peer`, `u_ms`, `mm` and optional `calibrated:true` (otherwise
 raw distance); `connection`/important `message`/`error` capture state changes;
-`gap` counts missing **full telemetry-stream** records, including raw packets
-omitted from compact files; `ordering` reports duplicate/old records without
+`gap` counts missing **full telemetry-stream** records, including records not selected by the compact projection; native RF raw records
+are now retained (see the raw timing section); `ordering` reports duplicate/old records without
 counting them again. Compact `health` defaults to30s; `transport` is emitted when
 bridge error/drop counters change. Counters are cumulative, not current delivery
 rates. STM `dropped` combines USB and Wi-Fi queues: disconnected/unconsumed USB
@@ -160,7 +160,7 @@ queues can increase it without Wi-Fi loss. Prefer sequence gaps and bridge count
 for transport diagnosis, while accounting for reconnects and logging windows.
 
 Raw/debug retains `kind`, endpoint, host UTC/monotonic time, complete `legacy_frame`,
-native RX, source/receiver epochs, sequence tracking, association generations,
+native RX, source/receiver epochs where available, sequence tracking, association generations,
 transport/radio counters and all bridge lines. New raw `tdoa` rows also retain
 actual onboard clock/rate/status, rate ppb, propagation ages/state, power flags
 and unknown-component mask. No received UWB frame is duplicated into a TDoA row.
@@ -638,8 +638,9 @@ historical backlog; every such snapshot is still mathematically replayed. This d
 not discard invalid calculations or remove a current missing pair. Missing initial/
 final pairs are annotated as possible boundaries, not silently certified complete.
 
-Compact filtering omits native raw rows only AFTER shared-sequence accounting, so it
-does not create sequence gaps. New gap rows retain the exact missing sequence range.
+Historically compact filtering omitted native raw rows AFTER shared-sequence
+accounting, without creating sequence gaps. Native RF raw rows are now retained;
+remaining filtering still occurs after sequence accounting. New gap rows retain the exact missing sequence range.
 Old compact logs lack these ranges and discarded payloads: their lost message types
 cannot be reconstructed exactly. No TCP/collector bug can be inferred from a gap alone.
 
@@ -1137,3 +1138,59 @@ geometry; Stage B uses RLR downlink TDoA against that geometry. AR remains optio
 diagnostics. No complete PC solver, ALR network stack or new Wi-Fi message type is
 introduced here. Wi-Fi forwarding of ALR ranges is future integration work;
 existing RLR Wi-Fi telemetry continues unchanged.
+
+## Raw timing records for future PC estimation
+
+Compact capture now retains genuine `multi_rx` (wire9/12), `hybrid_rx` (wire6)
+raw envelopes as additive record types, including the original RF frame hex,
+receiver marker, session/sequence, capture age and plan metadata. Previously these
+were deliberately omitted from compact files; raw/debug collector capture and
+live ROS acquisition still contained them. Compact files will grow accordingly.
+Old compact files cannot recover omitted bytes unless replay/raw data were recorded.
+Existing TDoA/range/clock semantics and schema1 records are unchanged. Consumers
+must skip unknown additive record types, as existing analysis does.
+
+Planned wire12 is named `multi_rx` by the established PC decoder. It now adds
+`radio_observation` projection_version1 without altering or removing `multi_frame`.
+This is field decoding only, not a new estimator or RF/telemetry format:
+
+- `local_event`, `local_marker_dtu`, `hardware_marker_valid`, `capture_age_ms`,
+  `capture_valid`, `processing_uptime_ms`, `local_clock_domain` retain native
+  receiver RX or verified local TX provenance. TX traces are never counted as RX.
+- `source_node`, full address/source clock domain, `rf_cycle`, `rf_sequence`,
+  `tdma_slot`, plan fingerprint/revision and `radio_protocol_version` bind the RF
+  event. Source clock epoch is explicitly null where not transmitted. Source radio
+  identity comes from the telemetry envelope; no clock-domain equality is inferred.
+- Broadcast `tx_timestamp_dtu` is the advertised antenna-referenced TX, distinct
+  from local RX. Follower `relation` retains all versioned origins, mapping epoch,
+  reference/propagation sequences, age, candidate rate and propagation/power source.
+  A follower/reference mapping epoch is not a globally unique transmitter boot ID.
+  Resolve reference identity from the matching plan roster/reference broadcast;
+  it is not guessed from a follower packet.
+- TWR retains operation/stage, ordered endpoints, six literal packet stamps,
+  their owning nodes, valid-prefix length and power-correction metadata. Packet RX
+  stamps may include power correction; do not relabel all six as untouched hardware.
+- `geometric_tdoa_valid=false`, `geometric_tdoa_dtu=null` means this raw record is
+  not a geometric TDoA result. It says nothing about RF absence. Relation rate is
+  explicitly not an independently validated oscillator rate.
+
+Unknown/malformed nested payloads leave the original raw envelope intact with
+`radio_observation=null` and `radio_observation_error`; no value is invented.
+Legacy type6 retains its existing original bytes/native hybrid replay support.
+Clock10 in guarded firmware retains reference TX/RX but reports no applied rate.
+Use raw reference intervals for apparent-rate observations, or optional replay15
+arrival state; neither is verified oscillator evidence. No guard is disabled.
+
+Host firmware transport is unchanged. A new native fixture forwards actual STM32
+UART bytes through `main/bridge_transport.c` with a UNIX socketpair and the existing
+bounded queues. The localization repository's
+`scripts/verify_raw_timing_pipeline.py` orchestrates C radio/queue/ESP fixtures,
+production PC decoding/ROS bridge methods, CDR serialization and fresh MCAP export.
+No real endpoints, motor commands, DDS context or original recordings are used.
+For the four-ALR100ms plan3962260266,479 downlink RX plus129 TWR RX/86 TWR TX
+produce694 raw records, all delivered at modeled921600baud in guard OFF/ON and
+replay-OFF modes, together with43 TWR results and120 vectors. Guarded geometric
+components remain0 (legacy344). Under intentional ESP socket backpressure, raw
+delivery falls to476/694 with838 counted drops; vectors/results remain120/43.
+At modeled115200baud, STM raw delivery falls to196/694 with584 counted Wi-Fi
+queue drops. These are measured software fixture losses, not physical link rates.

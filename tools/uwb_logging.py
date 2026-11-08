@@ -125,8 +125,11 @@ class CompactLog:
         if kind != 'telemetry':
             return
         event = row['type']
-        # Raw packets/peer tables are deliberately omitted from routine experiments.
-        if event not in ('tdoa_replay_fragment', 'tdoa', 'tdoa_vector', 'clock', 'range', 'summary', 'ar_range', 'ar_quality') and not row.get('missing'):
+        if event in ('plan_rx','multi_rx','hybrid_rx') and not (row.get('multi_frame') or row.get('legacy_frame')):
+            return  # A projection without frame bytes is not a raw RF record.
+        # Retain RF acquisition independently of corrected TDoA and replay fragments.
+        # Peer tables remain omitted from the compact projection.
+        if event not in ('tdoa_replay_fragment', 'tdoa', 'tdoa_vector', 'clock', 'range', 'summary', 'ar_range', 'ar_quality', 'plan_rx', 'multi_rx', 'hybrid_rx') and not row.get('missing'):
             return
         sid = self.session(row)
         base = dict(t=t, s=sid)
@@ -143,6 +146,9 @@ class CompactLog:
                     self.write(dict(result, t=t))
             except ValueError as error:
                 self.write(dict(base, type='error', reason=str(error), diagnostic_id=row['diagnostic_id']))
+        elif event in ('plan_rx','multi_rx','hybrid_rx'):
+            # Full decoded envelope plus original bytes; additive record types.
+            self.write(dict(row, **base))
         elif event == 'clock':
             fields = ('reference_node', 'reference_sequence', 'reference_tx_dtu', 'local_rx_dtu',
                       'applied_ppb', 'fitted_ppb', 'residual_rms_dtu', 'innovation_abs_dtu', 'rejected_samples', 'fit_sigma_ppb',
