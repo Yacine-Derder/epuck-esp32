@@ -14,6 +14,11 @@ for power tradeoffs, defaults/effective-config checks, build/flash/monitor
 commands, and the ping/client comparison. This addresses suspected causes;
 hardware verification is still required.
 
+At startup and after link loss, the ESP32-S3 scans all permitted Wi-Fi
+channels and tries matching APs in strongest-signal order. See the
+[AP selection and RLR 141 test procedure](docs/wifi_latency.md#access-point-selection)
+for the BSSID, channel and RSSI logs, the limits of this policy, and rollback.
+
 ## Interactive Wi-Fi terminal
 
 Install the optional terminal dependency in a local virtual environment:

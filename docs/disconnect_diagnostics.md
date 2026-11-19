@@ -118,7 +118,9 @@ them. They are separate from the following monitor-only reproduction steps.
    console does not terminate a Wi-Fi-owned motor session.
 
 3. In terminal C, run the client against the address printed by the existing
-   Wi-Fi station startup log (replace the example address):
+   `Got IP` log (replace the example address). The preceding association line
+   reports the BSSID, channel and RSSI. See [AP selection](wifi_latency.md#access-point-selection)
+   for the log format and RLR 141 before/after comparison.
 
    ```bash
    cd /home/derder/Documents/epuck-esp32
@@ -182,7 +184,7 @@ ESP32 reasons:
 
 | reason | Meaning / relevant detail |
 | --- | --- |
-| wifi_lost | Wi-Fi connection bit cleared; detail is the SDK Wi-Fi disconnect reason code. |
+| wifi_lost | The Wi-Fi driver reported a disconnect; detail is the SDK reason code. The transport task invalidates the session even if IP has already returned. |
 | stm32_session_lost | Matching SESSION LOST received; stm_diag contains the preceding tagged DIAG if available. |
 | uart_fifo_overflow / uart_buffer_overflow | UART FIFO or driver RX buffer overflow; detail is the UART event type. |
 | uart_framing_error / uart_parity_error | UART frame/parity event, distinct from buffer overflow. |
