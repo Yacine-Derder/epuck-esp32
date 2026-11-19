@@ -14,6 +14,7 @@
 #include "driver/gpio.h"
 
 #include "esp_log.h"
+#include "esp_mac.h"
 #include "esp_wifi.h"
 #include "esp_event.h"
 #include "esp_netif.h"
@@ -45,14 +46,31 @@ static void wifi_event_handler(void *arg,
                                int32_t event_id,
                                void *event_data)
 {
+    static bool associated_once;
+
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         esp_wifi_connect();
+    } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_CONNECTED) {
+        const wifi_event_sta_connected_t *event = event_data;
+        wifi_ap_record_t ap;
+        char rssi[16] = "unavailable";
+
+        /* Read the driver's current AP record without starting another scan.
+         * The event still identifies the AP if the link dropped in the meantime. */
+        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK &&
+            memcmp(ap.bssid, event->bssid, sizeof(event->bssid)) == 0) {
+            snprintf(rssi, sizeof(rssi), "%d dBm", (int)ap.rssi);
+        }
+        ESP_LOGI(TAG, "Wi-Fi %s bssid=" MACSTR " channel=%u rssi=%s",
+                 associated_once ? "reconnected" : "connected",
+                 MAC2STR(event->bssid), (unsigned)event->channel, rssi);
+        associated_once = true;
     } else if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         const wifi_event_sta_disconnected_t *event = event_data;
         int reason = event ? event->reason : 0;
         bridge_transport_wifi_lost(reason);
-        ESP_LOGW(TAG, "Wi-Fi disconnected reason=%d, retrying...", reason);
         xEventGroupClearBits(wifi_event_group, WIFI_CONNECTED_BIT);
+        ESP_LOGW(TAG, "Wi-Fi disconnected reason=%d, retrying...", reason);
         esp_wifi_connect();
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *event = (ip_event_got_ip_t *)event_data;
@@ -85,6 +103,10 @@ static void wifi_init_sta(void)
 
     wifi_config_t wifi_config = {
         .sta = {
+            .scan_method = WIFI_ALL_CHANNEL_SCAN,
+            .sort_method = WIFI_CONNECT_AP_BY_SIGNAL,
+            .bssid_set = false,
+            .channel = 0,
             .threshold.authmode = WIFI_AUTH_WPA2_PSK,
         },
     };
