@@ -48,6 +48,42 @@ static void assert_reason(const char *reason) {
  char expected[96];snprintf(expected,sizeof(expected),"disconnect reason=%s ",reason);
  assert(strstr(diagnostic_log,expected)); assert(strstr(diagnostic_log,"uart_q=") && strstr(diagnostic_log,"age_ms="));
 }
+static void wifi_reconnect_test(void) {
+ const char *old_session="3333333333333333";
+ int peer=attach(old_session);
+ tcp_record("ARM");
+ tcp_record("M 100 100");
+ assert(uart_out.count==2);
+ mock_uart_write=0;
+ mock_connected=0;
+ bridge_transport_wifi_lost(201);
+ mock_connected=wifi_bit=1; /* GOT_IP before the owner gets a turn. */
+ owner_once();
+ assert(client==-1 && !ready && listener==-1);
+ assert(strstr(diagnostic_log,"reason=wifi_lost session=3333333333333333 detail=201"));
+ assert(uart_out.count==1 && !strcmp(uart_out.data[uart_out.tail],"\nCLOSE 3333333333333333\n"));
+ char notice[512]={0};
+ assert(recv(peer,notice,sizeof(notice)-1,0)>0 && strstr(notice,"reason=wifi_lost"));
+ assert(recv(peer,notice,sizeof(notice),0)==0);
+ close(peer);
+
+ listener=socket(AF_INET,SOCK_STREAM,0);assert(listener>=0);
+ struct sockaddr_in address={.sin_family=AF_INET,.sin_addr.s_addr=htonl(INADDR_LOOPBACK)};
+ assert(bind(listener,(struct sockaddr *)&address,sizeof(address))==0);
+ assert(listen(listener,1)==0 && fcntl(listener,F_SETFL,O_NONBLOCK)==0);
+ socklen_t size=sizeof(address);assert(getsockname(listener,(struct sockaddr *)&address,&size)==0);
+ peer=socket(AF_INET,SOCK_STREAM,0);assert(peer>=0);
+ assert(connect(peer,(struct sockaddr *)&address,sizeof(address))==0);
+ owner_once();
+ assert(client>=0 && !ready && strcmp(session,old_session));
+ char open[32];snprintf(open,sizeof(open),"OPEN %s\n",session);
+ assert(uart_out.count==2 && !strcmp(uart_out.data[(uart_out.tail+1)%BRIDGE_SLOTS],open));
+ uart_record("SESSION 3333333333333333 READY");assert(!ready);
+ char reply[40];snprintf(reply,sizeof(reply),"SESSION %s READY",session);
+ uart_record(reply);assert(ready && uart_out.count==2);
+ disconnect_client("test_cleanup",0);close(peer);close(listener);listener=-1;
+ mock_uart_write=1;
+}
 static void reason_tests(void) {
  int peer=attach("1111111111111111");
  ready=0; opened_at=0;mock_time=40;
@@ -306,7 +342,7 @@ int main(void) {
  for(char *p=burst_output;(p=strstr(p,"OK\n"));p+=3)ack_count++;
  assert(log_count==20 && ack_count==20 && !tcp_out.count && !telemetry_out.count);
  disconnect_client("test_cleanup",0);close(peer);close(listener);listener=-1;
- reason_tests();uwb_telemetry_tests();priority_tests();ekf_transport_tests();
+ wifi_reconnect_test();reason_tests();uwb_telemetry_tests();priority_tests();ekf_transport_tests();
  puts("PASS: disconnect diagnostics, nonblocking notification, real transport session filtering, control/output overflow, slow-client loss, Wi-Fi/UART faults and nonblocking partial writes");
  return 0;
 }

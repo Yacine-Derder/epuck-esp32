@@ -22,8 +22,8 @@
 #include <inttypes.h>
 #include <stdatomic.h>
 
-/* One task exclusively owns BOTH sockets, parsers and queues. Wi-Fi event
- * callbacks only change a FreeRTOS event group; no cross-task socket closes.
+/* One task exclusively owns BOTH sockets, parsers and queues. The Wi-Fi
+ * callback publishes link state and loss; no cross-task socket closes.
  */
 static EventGroupHandle_t wifi_group;
 static EventBits_t wifi_bit;
@@ -42,8 +42,9 @@ static unsigned ready;
 static uint32_t opened_at, last_progress, led_until;
 static const char *const BRIDGE_TAG="bridge";
 static char stm_diagnostic[224];
-static atomic_int wifi_loss_detail;
-void bridge_transport_wifi_lost(int reason) { atomic_store(&wifi_loss_detail,reason); }
+/* Keep the loss pending even if IP returns before the transport task polls. */
+static atomic_int pending_wifi_loss = -1;
+void bridge_transport_wifi_lost(int reason) { atomic_store(&pending_wifi_loss,reason); }
 static int send_flags(void)
 {
   int flags=MSG_DONTWAIT;
@@ -250,9 +251,10 @@ static void transport_task(void *argument)
   for (;;) {
     uint32_t now=now_ms();
     unsigned connected=(xEventGroupGetBits(wifi_group)&wifi_bit)!=0;
-    if (!connected) disconnect_client("wifi_lost",atomic_load(&wifi_loss_detail));
-    if (connected && listener<0) listener=create_listener();
-    if (connected && listener>=0) accept_client(now);
+    int wifi_loss=atomic_exchange(&pending_wifi_loss,-1);
+    if (wifi_loss>=0 || !connected) disconnect_client("wifi_lost",wifi_loss>=0?wifi_loss:0);
+    if (connected && wifi_loss<0 && listener<0) listener=create_listener();
+    if (connected && wifi_loss<0 && listener>=0) accept_client(now);
     uart_event_t event;
     for (unsigned budget=0; budget<BRIDGE_UART_EVENTS && xQueueReceive(uart_events,&event,0); ++budget) {
       if (event.type==UART_FIFO_OVF || event.type==UART_BUFFER_FULL || event.type==UART_FRAME_ERR || event.type==UART_PARITY_ERR) {
